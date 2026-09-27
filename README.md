@@ -6,6 +6,10 @@ results, and hands the case to a human whenever it is unsure.
 
 See [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md) for the plan and architecture.
 
+The same API also powers the **Khatti mobile app** ([`mobile/`](mobile/README.md)): an
+Expo app for iOS and Android that turns any photo into structured data through
+`POST /v1/extract`, saves it to Supabase, and tests the KYC endpoint from a phone.
+
 ## Pipeline
 
 1. **Read**: every image reader (e.g. an NVIDIA VLM on a Nebius Serverless Endpoint and
@@ -36,6 +40,16 @@ curl -F files=@id.jpg -F doc_types=national_id \
      http://localhost:8000/v1/kyc/cases
 ```
 
+### Photo to data (mobile app)
+
+```bash
+curl -F file=@receipt.jpg -F mode=prices http://localhost:8000/v1/extract
+```
+
+`mode` is one of `auto`, `prices`, `mind`, `prompt`, `text`. The reply is one JSON
+record: `kind`, `title`, `summary`, `text`, `tags`, `fields`, `items` (name, price,
+currency, quantity, unit), `store`, and `prompt` (a ready-to-paste generative-media prompt).
+
 ## Configuration
 
 | Variable | Purpose |
@@ -45,6 +59,8 @@ curl -F files=@id.jpg -F doc_types=national_id \
 | `KHATTI_ROUTER_MODEL` | Nemotron model id |
 | `KHATTI_READERS` | JSON list of vision readers: `name`, `base_url`, `model`, optional `api_key` |
 | `KHATTI_MIN_CONFIDENCE` | Below this case confidence → human review (default 0.85) |
+| `KHATTI_EXTRACTOR` | JSON `{name, base_url, model, api_key?}` vision model for `/v1/extract`; defaults to the first reader |
+| `KHATTI_API_KEY` | If set, `/v1/*` requires `Authorization: Bearer <key>` |
 
 ## Test
 

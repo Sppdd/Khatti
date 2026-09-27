@@ -1,0 +1,64 @@
+{
+  "expo": {
+    "name": "Khatti",
+    "slug": "khatti",
+    "scheme": "khatti",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0D0B16",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0D0B16"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.khatti.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "app.khatti.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#4B2FD6",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-image",
+      "expo-sharing",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180,
+          "backgroundColor": "#0D0B16"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Khatti reads the photos you pick to turn them into data.",
+          "cameraPermission": "Khatti uses the camera to capture receipts, notes and scenes.",
+          "microphonePermission": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

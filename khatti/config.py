@@ -21,6 +21,10 @@ class Settings:
     router: EndpointConfig | None
     # Image readers. At least one should be the NVIDIA VLM on a Nebius Serverless Endpoint.
     readers: list[EndpointConfig] = field(default_factory=list)
+    # Vision model for general photo-to-data extraction (mobile app). Defaults to the first reader.
+    extractor: EndpointConfig | None = None
+    # When set, /v1/* requests must send "Authorization: Bearer <api_key>".
+    api_key: str = ""
     min_confidence: float = 0.85
     timeout_s: float = 60.0
 
@@ -50,9 +54,21 @@ def load_settings() -> Settings:
         for r in json.loads(os.getenv("KHATTI_READERS", "[]"))
     ]
 
+    extractor = readers[0] if readers else None
+    if raw := os.getenv("KHATTI_EXTRACTOR"):
+        e = json.loads(raw)
+        extractor = EndpointConfig(
+            name=e.get("name", "extractor"),
+            base_url=e["base_url"],
+            model=e["model"],
+            api_key=e.get("api_key") or token_factory_key,
+        )
+
     return Settings(
         router=router,
         readers=readers,
+        extractor=extractor,
+        api_key=os.getenv("KHATTI_API_KEY", ""),
         min_confidence=float(os.getenv("KHATTI_MIN_CONFIDENCE", "0.85")),
         timeout_s=float(os.getenv("KHATTI_TIMEOUT_S", "60")),
     )
