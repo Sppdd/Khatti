@@ -1,4 +1,4 @@
-"""Shared schemas for the KYC pipeline."""
+"""Shared schemas for the document pipeline."""
 
 from __future__ import annotations
 
@@ -7,45 +7,16 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
-class DocumentType(str, Enum):
-    NATIONAL_ID = "national_id"  # البطاقة الوطنية الموحدة
-    PASSPORT = "passport"  # جواز السفر
-    RESIDENCE_CARD = "residence_card"  # بطاقة السكن
-
-
-# Fields each document type is expected to yield.
-EXPECTED_FIELDS: dict[DocumentType, list[str]] = {
-    DocumentType.NATIONAL_ID: [
-        "full_name_ar",
-        "mother_name_ar",
-        "date_of_birth",
-        "id_number",
-        "expiry_date",
-        "sex",
-    ],
-    DocumentType.PASSPORT: [
-        "full_name_ar",
-        "full_name_en",
-        "date_of_birth",
-        "passport_number",
-        "expiry_date",
-        "sex",
-        "mrz_line1",
-        "mrz_line2",
-    ],
-    DocumentType.RESIDENCE_CARD: [
-        "full_name_ar",
-        "address_ar",
-        "card_number",
-        "issue_date",
-    ],
-}
-
-
 class DocumentInput(BaseModel):
-    doc_type: DocumentType
+    doc_type: str
     image: bytes
     mime_type: str = "image/jpeg"
+
+
+class ReaderStatus(str, Enum):
+    OK = "ok"
+    UNAVAILABLE = "unavailable"  # endpoint down / unreachable: expected, e.g. GPU endpoint stopped
+    ERROR = "error"  # reachable but the reply was unusable
 
 
 class ReaderResult(BaseModel):
@@ -53,6 +24,7 @@ class ReaderResult(BaseModel):
 
     reader: str
     fields: dict[str, str | None] = Field(default_factory=dict)
+    status: ReaderStatus = ReaderStatus.OK
     error: str | None = None
 
 
@@ -64,10 +36,13 @@ class FieldConsensus(BaseModel):
 
 
 class DocumentReading(BaseModel):
-    doc_type: DocumentType
+    doc_type: str
     fields: dict[str, FieldConsensus]
-    readers_ok: int
-    readers_total: int
+    readers: dict[str, ReaderStatus] = Field(default_factory=dict)
+
+    @property
+    def readers_ok(self) -> int:
+        return sum(s is ReaderStatus.OK for s in self.readers.values())
 
     @property
     def confidence(self) -> float:
@@ -90,7 +65,7 @@ class CheckResult(BaseModel):
     code: str
     severity: Severity
     message: str
-    doc_type: DocumentType | None = None
+    doc_type: str | None = None
 
 
 class Decision(str, Enum):
@@ -106,3 +81,4 @@ class CaseResult(BaseModel):
     documents: list[DocumentReading]
     checks: list[CheckResult]
     router: str = Field(description="Which component made the final call")
+    reviewer_summary: str | None = Field(None, description="Brief for the human reviewer (routed cases only)")

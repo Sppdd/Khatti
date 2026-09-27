@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from khatti.validation import mrz_check_digit
+from khatti.kyc import mrz_check_digit
 
 TODAY = date(2026, 9, 27)
 

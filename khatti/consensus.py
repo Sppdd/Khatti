@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .arabic import similarity
-from .models import EXPECTED_FIELDS, DocumentReading, DocumentType, FieldConsensus, ReaderResult
+from .models import DocumentReading, FieldConsensus, ReaderResult, ReaderStatus
 
 # Two readings count as agreeing above this similarity (absorbs minor OCR noise).
 AGREE_THRESHOLD = 0.9
@@ -26,12 +26,13 @@ def merge_field(name: str, candidates: dict[str, str | None]) -> FieldConsensus:
     return FieldConsensus(name=name, value=best, agreement=agreement, candidates=candidates)
 
 
-def build_reading(doc_type: DocumentType, results: list[ReaderResult]) -> DocumentReading:
-    ok = [r for r in results if r.error is None]
-    names = list(EXPECTED_FIELDS[doc_type])
-    for r in ok:
-        names += [n for n in r.fields if n not in names]
+def build_reading(doc_type: str, field_names: list[str], results: list[ReaderResult]) -> DocumentReading:
+    readers = {r.reader: r.status for r in results}
+    ok = [r for r in results if r.status is ReaderStatus.OK]
+    if not ok:
+        return DocumentReading(doc_type=doc_type, fields={}, readers=readers)
 
+    # Only schema fields: readers that invent extra keys do not get them into the record.
     # Failed readers still count as a missing vote: one surviving reader is not consensus.
-    fields = {n: merge_field(n, {r.reader: r.fields.get(n) for r in results}) for n in names} if ok else {}
-    return DocumentReading(doc_type=doc_type, fields=fields, readers_ok=len(ok), readers_total=len(results))
+    fields = {n: merge_field(n, {r.reader: r.fields.get(n) for r in results}) for n in field_names}
+    return DocumentReading(doc_type=doc_type, fields=fields, readers=readers)

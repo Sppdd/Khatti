@@ -1,0 +1,31 @@
+# Local development stack: Postgres + API + worker. Images stay on a local volume.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: khatti
+      POSTGRES_PASSWORD: khatti
+      POSTGRES_DB: khatti
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+  api:
+    build: .
+    env_file: .env
+    environment:
+      KHATTI_DATABASE_URL: postgresql://khatti:khatti@db:5432/khatti
+      KHATTI_LOCAL_STORAGE_DIR: /data/objects
+    ports: ["8000:8000"]
+    volumes: [objects:/data/objects]
+    depends_on: [db]
+  worker:
+    build: .
+    command: ["python", "-m", "khatti.worker"]
+    env_file: .env
+    environment:
+      KHATTI_DATABASE_URL: postgresql://khatti:khatti@db:5432/khatti
+      KHATTI_LOCAL_STORAGE_DIR: /data/objects
+    volumes: [objects:/data/objects]
+    depends_on: [db]
+volumes:
+  pgdata:
+  objects:
