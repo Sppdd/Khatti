@@ -21,16 +21,19 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Synthetic data, eval, calibration and bake-off jobs (jobs/). MLflow logging is used when installed.
+jobs = ["playwright==1.56.0", "mlflow>=2.14"]
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["khatti*"]
+include = ["khatti*", "jobs*"]
 
 [tool.setuptools.package-data]
 khatti = ["rules/*.yaml", "store/*.sql"]
+"jobs.synth" = ["fonts/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
