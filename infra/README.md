@@ -14,13 +14,29 @@ terraform validate                        # run first: see the note below
 terraform apply -var project_id=... -var subnet_id=... -var editors_group_id=...
 ```
 
-> **Not yet validated.** The provider registry was unreachable from the environment where this
-> was written, so resource schemas follow Nebius docs and examples. `terraform validate` against
-> the real provider is the first step; fix any attribute names it reports.
+> Attribute names and types were checked against the API schemas shipped in the official `nebius`
+> Python SDK (0.6.14), which the provider is generated from. The provider registry itself was
+> unreachable from the build environment, so run `terraform validate` before the first apply.
 
-Serverless Endpoints (API, worker, GPU reader) and Serverless Jobs are created with the `nebius`
-CLI through `deploy/nebius-serverless.sh`, because provider coverage for them is unverified. Check
-its flags against `nebius ai endpoint create --help` before the first run.
+## Serverless Endpoints and Jobs — `deploy/nebius_deploy.py`
+
+Typed deploys through the official SDK (`pip install -e '.[deploy]'`; auth from the Nebius CLI
+profile or `NEBIUS_IAM_TOKEN`). Settings come from `.env.nebius` plus the environment.
+
+```bash
+python -m deploy.nebius_deploy endpoint reader-omni --project $P --image $REG/khatti-reader-omni:$TAG --dry-run
+python -m deploy.nebius_deploy endpoint api    --project $P --image $REG/khatti-api:$TAG
+python -m deploy.nebius_deploy endpoint worker --project $P --image $REG/khatti-api:$TAG
+python -m deploy.nebius_deploy stop reader-omni --project $P      # no GPU charge while stopped
+python -m deploy.nebius_deploy start reader-omni --project $P     # "wake NVIDIA reader"
+python -m deploy.nebius_deploy job jobs.eval --project $P --image $REG/khatti-jobs:$TAG -- --split test --run-name v1
+python -m deploy.nebius_deploy status --project $P
+```
+
+`--dry-run` asks the API to validate a create without doing it. Platform and preset names
+(`gpu-l40s-a`, `1gpu-8vcpu-32gb`, `cpu-e2`, ...) vary by region: check `nebius compute platform list`
+and pass `--platform/--preset` if they differ. The reader endpoint is protected by its auth token
+(`READER_OMNI_TOKEN`); use the same value as that reader's `api_key` in `KHATTI_READERS`.
 
 Region: eu-north1 has every service Khatti needs, including Managed MLflow. The plan advises against
 me-west1 for Iraqi KYC data (Iraq's 2022 anti-normalisation law; confirm with Iraqi counsel).

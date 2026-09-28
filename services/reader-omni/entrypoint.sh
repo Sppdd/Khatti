@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Weights are downloaded on first start into $HF_HOME (mount a volume there to avoid
-# re-downloading on every cold start). VLLM_API_KEY protects the endpoint.
+# re-downloading on every cold start). The Serverless Endpoint's auth token protects it;
+# VLLM_API_KEY (read by vLLM from the environment) adds a second check when set.
 set -euo pipefail
-: "${VLLM_API_KEY:?set VLLM_API_KEY}"
 exec vllm serve "$MODEL_ID" \
   --host 0.0.0.0 --port 8000 \
   --served-model-name "$MODEL_ID" \

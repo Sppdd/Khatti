@@ -23,6 +23,15 @@ output "mlflow_cluster_id" {
   value = nebius_msp_mlflow_v1alpha1_cluster.main.id
 }
 
-output "app_access_key_id" {
-  value = nebius_iam_v1_access_key.app.id
+output "app_aws_access_key_id" {
+  value = nebius_iam_v2_access_key.app.status.aws_access_key_id
+}
+
+output "app_access_key_secret_reference" {
+  description = "MysteryBox secret holding AWS_SECRET_ACCESS_KEY for the app."
+  value       = nebius_iam_v2_access_key.app.status.secret_reference_id
+}
+
+output "jobs_aws_access_key_id" {
+  value = nebius_iam_v2_access_key.jobs.status.aws_access_key_id
 }

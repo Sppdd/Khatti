@@ -1,10 +1,11 @@
 # Khatti on Nebius AI Cloud (eu-north1): Object Storage, Managed PostgreSQL, Container
 # Registry, Managed MLflow and service accounts.
 #
-# NOT YET VALIDATED: the provider registry was unreachable from the build environment, so
-# resource schemas follow Nebius docs/examples and must be checked with `terraform validate`
-# before the first apply. Serverless Endpoints and Jobs are created with the CLI
-# (deploy/nebius-serverless.sh) because provider coverage for them is unverified.
+# Attribute names and types were checked against the Nebius API schemas in the official
+# `nebius` Python SDK (0.6.14), which the provider is generated from (spec fields sit at the
+# resource top level). `terraform validate` against the real provider is still required: the
+# provider registry was unreachable from the build environment. Serverless Endpoints and Jobs
+# are deployed with deploy/nebius_deploy.py (typed SDK, ai.v1).
 
 locals {
   name = "khatti-${var.env}"
@@ -46,19 +47,22 @@ resource "nebius_iam_v1_service_account" "jobs" {
   name      = "${local.name}-jobs"
 }
 
-# S3 access keys for the API/worker (images) and the jobs (artifacts).
-resource "nebius_iam_v1_access_key" "app" {
+# S3 access keys (IAM v2). The secret goes to MysteryBox, as the API recommends for Terraform;
+# read it from there when configuring the app (AWS_SECRET_ACCESS_KEY).
+resource "nebius_iam_v2_access_key" "app" {
   parent_id = var.project_id
   account = {
     service_account = { id = nebius_iam_v1_service_account.app.id }
   }
+  secret_delivery_mode = "MYSTERY_BOX"
 }
 
-resource "nebius_iam_v1_access_key" "jobs" {
+resource "nebius_iam_v2_access_key" "jobs" {
   parent_id = var.project_id
   account = {
     service_account = { id = nebius_iam_v1_service_account.jobs.id }
   }
+  secret_delivery_mode = "MYSTERY_BOX"
 }
 
 # ---------------------------------------------------------------- Container Registry
@@ -80,7 +84,7 @@ resource "nebius_msp_postgresql_v1alpha1_cluster" "main" {
   name       = local.name
   network_id = data.nebius_vpc_v1_subnet.main.network_id
   config = {
-    version = 16
+    version = "16"
     template = {
       resources = { platform = "cpu-e2", preset = var.postgres_preset }
       hosts     = { count = 1 }
