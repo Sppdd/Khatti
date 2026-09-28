@@ -70,6 +70,19 @@ short-lived JWTs from `POST /v1/auth/token`. Every POST needs an `Idempotency-Ke
 - **Audit**: an append-only, hash-chained `audit_log`, plus every model call (model id, prompt hash, image hashes, latency, tokens) in `model_calls`.
 - **Queue**: Postgres `SKIP LOCKED` jobs and webhook deliveries.
 
+## Evaluation and data (plan H/I) — [`jobs/`](jobs/README.md)
+
+Synthetic fictional documents (rendered with real Arabic shaping, SPECIMEN-watermarked), phone-photo
+augmentation with quality buckets, the week-1 reader bake-off, calibration fitting, and the eval
+harness (hallucination rate, calibration, routing, selective risk). Each runs as a Nebius Serverless
+Job from one container and logs to Managed MLflow.
+
+## Infrastructure — [`infra/`](infra/README.md)
+
+Terraform for Nebius (Object Storage, Managed PostgreSQL, Container Registry, Managed MLflow, IAM),
+the vLLM image for the NVIDIA reader (`services/reader-omni`), a CLI deploy script for Serverless
+Endpoints/Jobs, and a GCP portability module.
+
 ## Run locally
 
 ```bash
@@ -95,5 +108,7 @@ KHATTI_TEST_DATABASE_URL=postgresql://postgres@localhost:5432/khatti_test .venv/
 - Commercial registration and tax card formats are our own **"Iraqi-style (fictional)"**
   synthetic specs (`khatti/rules/kyc.yaml`).
 - Model IDs come from the plan's research. Confirm them with `GET /v1/models?verbose=true`.
+- The Nebius Terraform and the Serverless CLI flags have not been validated against the real
+  provider/CLI yet (see `infra/README.md`).
 - Until `jobs/calibrate` fits a calibrator on the calibration split, confidences come
   from hand-set weights and are **not calibrated probabilities**.

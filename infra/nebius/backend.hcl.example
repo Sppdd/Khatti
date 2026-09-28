@@ -1,0 +1,3 @@
+bucket     = "khatti-tfstate"
+access_key = "<state bucket access key id>"
+secret_key = "<state bucket secret>"
