@@ -1,7 +1,7 @@
-"""Pipeline worker: claims queued cases from Postgres and processes them.
+"""Pipeline worker: processes queued sessions, delivers webhooks, and sweeps retention.
 
 Run with `python -m khatti.worker`. Any number of workers can run side by side;
-SKIP LOCKED hands each case to exactly one of them.
+SKIP LOCKED hands each job and each delivery to exactly one of them.
 """
 
 from __future__ import annotations
@@ -9,56 +9,55 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+import time
 
-from .models import DocumentInput
-from .services import Services, services_from_env
-from .webhooks import deliver
+from .service import MAX_ATTEMPTS, KycService
+from .services import services_from_env
 
 log = logging.getLogger("khatti.worker")
-MAX_ATTEMPTS = 3
+RETENTION_EVERY_S = 3600
 
 
-async def process_one(svc: Services) -> bool:
-    """Process one queued case. Returns False when the queue is empty."""
-    assert svc.cases and svc.objects and svc.pipeline
-    claimed = await svc.cases.claim_next()
-    if claimed is None:
+async def process_one(service: KycService) -> bool:
+    """Process one queued session. Returns False when the queue is empty."""
+    job = await service.store.claim_job()
+    if job is None:
         return False
-
     try:
-        docs = [
-            DocumentInput(doc_type=d.doc_type, image=await svc.objects.get(d.object_key), mime_type=d.mime_type)
-            for d in claimed.documents
-        ]
-        result = await svc.pipeline.run(docs)
+        await service.process(job["tenant_id"], job["session_id"])
     except Exception as exc:
-        log.exception("case %s failed", claimed.id)
-        await svc.cases.fail(claimed.id, f"{type(exc).__name__}: {exc}", retry=claimed.attempts < MAX_ATTEMPTS)
+        log.exception("session %s failed (attempt %s)", job["session_id"], job["attempts"])
+        error = f"{type(exc).__name__}: {exc}"
+        retry = job["attempts"] < MAX_ATTEMPTS
+        if not retry:
+            await service.fail(job["tenant_id"], job["session_id"], error)
+        await service.store.finish_job(job["id"], error, retry=retry)
         return True
-
-    payload = result.model_dump(mode="json")
-    await svc.cases.complete(claimed.id, payload)
-
-    if claimed.callback_url:
-        ok, status = await deliver(
-            svc.http, claimed.callback_url, {"case_id": str(claimed.id), "status": "done", "result": payload}, svc.webhook_secret
-        )
-        await svc.cases.audit(claimed.id, "webhook_delivered" if ok else "webhook_failed", {"status": status})
+    await service.store.finish_job(job["id"])
     return True
 
 
 async def run(poll_interval_s: float = 1.0) -> None:
     svc = await services_from_env()
-    if not (svc.cases and svc.pipeline):
+    if svc.service is None or svc.pipeline is None:
         raise SystemExit("worker needs KHATTI_DATABASE_URL and KHATTI_READERS")
+    service = svc.service
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop.set)
     log.info("worker started")
+    last_sweep = 0.0
     try:
         while not stop.is_set():
-            if not await process_one(svc):
+            busy = await process_one(service)
+            busy = await service.deliver_one() or busy
+            if time.monotonic() - last_sweep > RETENTION_EVERY_S:
+                n = await service.retention_sweep()
+                if n:
+                    log.info("retention: deleted %s originals", n)
+                last_sweep = time.monotonic()
+            if not busy:
                 try:
                     await asyncio.wait_for(stop.wait(), poll_interval_s)
                 except asyncio.TimeoutError:

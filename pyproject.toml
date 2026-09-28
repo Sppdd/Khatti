@@ -1,7 +1,7 @@
 [project]
 name = "khatti"
-version = "0.2.0"
-description = "Khatti — Arabic-first document agent for Iraqi onboarding documents"
+version = "0.3.0"
+description = "Khatti — Arabic-first KYC document agent that knows when to hand over"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.110",
@@ -11,6 +11,12 @@ dependencies = [
     "python-multipart>=0.0.9",
     "psycopg[binary,pool]>=3.2",
     "boto3>=1.34",
+    "numpy>=1.26",
+    "opencv-python-headless>=4.9",
+    "pyyaml>=6",
+    "hijridate>=2.3",
+    "cryptography>=42",
+    "pyjwt>=2.8",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +28,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["khatti*"]
+
+[tool.setuptools.package-data]
+khatti = ["rules/*.yaml", "store/*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

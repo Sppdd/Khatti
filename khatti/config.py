@@ -9,9 +9,9 @@ from dataclasses import dataclass, field
 TOKEN_FACTORY_URL = "https://api.tokenfactory.nebius.com/v1"
 
 # Model tiers from the plan. Confirm the exact IDs with GET /v1/models?verbose=true.
-DEFAULT_ROUTER_MODEL = "nvidia/Nemotron-3_5-Lightning"  # every case: fast routing call
-DEFAULT_STRUCTURER_MODEL = "nvidia/nemotron-3-super-120b-a12b"  # maps free-text reader output to the schema
-DEFAULT_REVIEWER_MODEL = "nvidia/Nemotron-3-Ultra-550b-a55b"  # routed cases only: adjudication + reviewer brief
+DEFAULT_FAST_MODEL = "nvidia/Nemotron-3_5-Lightning"  # classification over reader captions
+DEFAULT_STRUCTURER_MODEL = "nvidia/nemotron-3-super-120b-a12b"  # copy-only structuring
+DEFAULT_REVIEWER_MODEL = "nvidia/Nemotron-3-Ultra-550b-a55b"  # routed sessions only
 
 
 @dataclass(frozen=True)
@@ -20,7 +20,8 @@ class EndpointConfig:
     base_url: str
     model: str
     api_key: str
-    json_mode: bool = True  # send response_format=json_object; support varies by model
+    json_mode: bool = True  # send response_format; support varies by model
+    samples: int = 1  # >1: self-consistency sampling at temperature 0.7
     vendor: str = ""
 
 
@@ -35,17 +36,22 @@ class StorageConfig:
 
 @dataclass(frozen=True)
 class Settings:
-    router: EndpointConfig | None
+    fast: EndpointConfig | None
     structurer: EndpointConfig | None
     reviewer: EndpointConfig | None
     readers: list[EndpointConfig] = field(default_factory=list)
-    min_confidence: float = 0.85
-    timeout_s: float = 60.0
+    primary_readers: dict[str, str] = field(default_factory=dict)
+    calibrator_path: str = ""
+    tau_doc: float = 0.8
+    timeout_s: float = 90.0
     database_url: str = ""
     storage: StorageConfig = field(default_factory=StorageConfig)
-    webhook_secret: str = ""
+    public_base_url: str = "http://localhost:8000"
+    data_key: str = ""  # base64 32 bytes; envelope encryption KEK + HMAC key
+    jwt_secret: str = ""
+    retention_days: int = 30
+    rate_limit_per_minute: int = 120
     webhook_allowed_hosts: frozenset[str] = frozenset()
-    api_keys: frozenset[str] = frozenset()
 
 
 def _csv(name: str) -> frozenset[str]:
@@ -62,7 +68,7 @@ def load_settings() -> Settings:
             return None
         return EndpointConfig(name=name, base_url=tf_url, model=model, api_key=tf_key, vendor="nvidia")
 
-    # KHATTI_READERS is a JSON list of {"name", "base_url", "model", "api_key"?, "json_mode"?, "vendor"?}.
+    # KHATTI_READERS: JSON list of {"name", "base_url", "model", "api_key"?, "json_mode"?, "samples"?, "vendor"?}.
     # A reader without api_key falls back to the Token Factory key.
     readers = [
         EndpointConfig(
@@ -71,18 +77,22 @@ def load_settings() -> Settings:
             model=r["model"],
             api_key=r.get("api_key") or tf_key,
             json_mode=r.get("json_mode", True),
+            samples=int(r.get("samples", 1)),
             vendor=r.get("vendor", ""),
         )
         for r in json.loads(os.getenv("KHATTI_READERS", "[]"))
     ]
 
     return Settings(
-        router=tier("router", "KHATTI_ROUTER_MODEL", DEFAULT_ROUTER_MODEL),
-        structurer=tier("structurer", "KHATTI_STRUCTURER_MODEL", DEFAULT_STRUCTURER_MODEL),
-        reviewer=tier("reviewer", "KHATTI_REVIEWER_MODEL", DEFAULT_REVIEWER_MODEL),
+        fast=tier("lightning", "KHATTI_FAST_MODEL", DEFAULT_FAST_MODEL),
+        structurer=tier("super", "KHATTI_STRUCTURER_MODEL", DEFAULT_STRUCTURER_MODEL),
+        reviewer=tier("ultra", "KHATTI_REVIEWER_MODEL", DEFAULT_REVIEWER_MODEL),
         readers=readers,
-        min_confidence=float(os.getenv("KHATTI_MIN_CONFIDENCE", "0.85")),
-        timeout_s=float(os.getenv("KHATTI_TIMEOUT_S", "60")),
+        # Bake-off outcome, e.g. {"names": "arabic-vlm", "digits": "nvidia-omni", "dates": "nvidia-omni"}
+        primary_readers=json.loads(os.getenv("KHATTI_PRIMARY_READERS", "{}")),
+        calibrator_path=os.getenv("KHATTI_CALIBRATOR_PATH", ""),
+        tau_doc=float(os.getenv("KHATTI_TAU_DOC", "0.8")),
+        timeout_s=float(os.getenv("KHATTI_TIMEOUT_S", "90")),
         database_url=os.getenv("KHATTI_DATABASE_URL", ""),
         storage=StorageConfig(
             bucket=os.getenv("KHATTI_S3_BUCKET", ""),
@@ -90,7 +100,10 @@ def load_settings() -> Settings:
             region=os.getenv("KHATTI_S3_REGION", "eu-north1"),
             local_dir=os.getenv("KHATTI_LOCAL_STORAGE_DIR", "./data/objects"),
         ),
-        webhook_secret=os.getenv("KHATTI_WEBHOOK_SECRET", ""),
+        public_base_url=os.getenv("KHATTI_PUBLIC_BASE_URL", "http://localhost:8000"),
+        data_key=os.getenv("KHATTI_DATA_KEY", ""),
+        jwt_secret=os.getenv("KHATTI_JWT_SECRET", ""),
+        retention_days=int(os.getenv("KHATTI_RETENTION_DAYS", "30")),
+        rate_limit_per_minute=int(os.getenv("KHATTI_RATE_LIMIT_PER_MINUTE", "120")),
         webhook_allowed_hosts=_csv("KHATTI_WEBHOOK_ALLOWED_HOSTS"),
-        api_keys=_csv("KHATTI_API_KEYS"),
     )

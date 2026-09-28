@@ -6,12 +6,17 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+# The illegible-character marker readers are told to emit.
+ILLEGIBLE = "?"
+
 
 class DocumentInput(BaseModel):
-    doc_type: str
+    slot: str  # what the session asked for, e.g. "national_id_front"
     image: bytes
     mime_type: str = "image/jpeg"
 
+
+# ---------------------------------------------------------------- perception
 
 class ReaderStatus(str, Enum):
     OK = "ok"
@@ -19,66 +24,134 @@ class ReaderStatus(str, Enum):
     ERROR = "error"  # reachable but the reply was unusable
 
 
-class ReaderResult(BaseModel):
-    """What one image reader extracted from one document."""
+class Line(BaseModel):
+    line_id: str
+    text: str
+    bbox: list[float] | None = None  # [x0, y0, x1, y1], relative 0..1
+    conf: float | None = None
+
+
+class Transcript(BaseModel):
+    """One reader's reading of one image (one sample)."""
 
     reader: str
-    fields: dict[str, str | None] = Field(default_factory=dict)
+    sample: int = 0
     status: ReaderStatus = ReaderStatus.OK
+    caption: str = ""  # one-line description of the document, used for classification
+    lines: list[Line] = Field(default_factory=list)
     error: str | None = None
 
 
-class FieldConsensus(BaseModel):
+# ---------------------------------------------------------------- structuring
+
+class SourceSpan(BaseModel):
+    line_id: str
+    start: int
+    end: int
+
+
+class ExtractedValue(BaseModel):
+    """A structurer's claim about one field, before it is verified against the lines."""
+
+    value: str | None = None
+    spans: list[SourceSpan] = Field(default_factory=list)
+    reason: str | None = None  # why value is null: not_present | illegible | ...
+
+
+class VerifiedValue(BaseModel):
+    value: str | None
+    source_line_ids: list[str] = Field(default_factory=list)
+    reason: str | None = None
+    raw_partial: str | None = None  # partial reading of an illegible field, reviewer-only
+
+
+# ---------------------------------------------------------------- results
+
+class FieldStatus(str, Enum):
+    OK = "ok"
+    LOW_CONFIDENCE = "low_confidence"
+    UNREADABLE = "unreadable"
+    MISMATCH = "mismatch"
+    INVALID_FORMAT = "invalid_format"
+    EXPIRED = "expired"
+    NOT_PRESENT = "not_present"
+
+
+class FieldResult(BaseModel):
     name: str
     value: str | None
-    agreement: float = Field(ge=0, le=1, description="Share of readers that agree with the winning value")
-    candidates: dict[str, str | None] = Field(default_factory=dict, description="reader -> raw value")
-
-
-class DocumentReading(BaseModel):
-    doc_type: str
-    fields: dict[str, FieldConsensus]
-    readers: dict[str, ReaderStatus] = Field(default_factory=dict)
-
-    @property
-    def readers_ok(self) -> int:
-        return sum(s is ReaderStatus.OK for s in self.readers.values())
-
-    @property
-    def confidence(self) -> float:
-        if not self.fields:
-            return 0.0
-        return sum(f.agreement for f in self.fields.values()) / len(self.fields)
-
-    def value(self, name: str) -> str | None:
-        f = self.fields.get(name)
-        return f.value if f else None
+    status: FieldStatus
+    confidence: float = Field(ge=0, le=1)
+    reason: str | None = None
+    raw_partial: str | None = None
+    calendar: str | None = None  # for dates: gregorian | hijri
+    calendar_converted: bool = False
+    candidates: dict[str, str | None] = Field(default_factory=dict, description="reader#sample -> verified value")
+    sources: dict[str, list[str]] = Field(default_factory=dict, description="reader#sample -> line ids")
+    features: dict[str, float] = Field(default_factory=dict)
 
 
 class Severity(str, Enum):
     INFO = "info"
-    WARN = "warn"  # needs a human look
-    FAIL = "fail"  # hard failure
+    WARN = "warn"  # blocks auto-pass
+    FAIL = "fail"  # blocks auto-pass and is a strong reason
 
 
 class CheckResult(BaseModel):
     code: str
     severity: Severity
     message: str
-    doc_type: str | None = None
+    slot: str | None = None
+    field: str | None = None
 
 
-class Decision(str, Enum):
-    APPROVE = "approve"
+class QualityReport(BaseModel):
+    width: int
+    height: int
+    metrics: dict[str, float]
+    issues: list[str] = Field(default_factory=list)  # machine codes, e.g. "blur", "corner_cut"
+    guidance_ar: list[str] = Field(default_factory=list)
+    guidance_en: list[str] = Field(default_factory=list)
+
+    @property
+    def retake(self) -> bool:
+        return bool(self.issues)
+
+
+class DocumentResult(BaseModel):
+    slot: str
+    doc_type: str  # what the document was classified as
+    classification_confidence: float = 1.0
+    quality: QualityReport | None = None
+    fields: dict[str, FieldResult] = Field(default_factory=dict)
+    readers: dict[str, ReaderStatus] = Field(default_factory=dict)
+    image_hashes: list[str] = Field(default_factory=list)
+
+
+class CrossCheck(BaseModel):
+    rule: str
+    status: str  # match | partial_match | mismatch | transliteration_match | pass | fail | skipped
+    score: float | None = None
+    detail: str = ""
+
+
+class Outcome(str, Enum):
+    AUTO_PASS = "auto_pass"
     HUMAN_REVIEW = "human_review"
-    REJECT = "reject"
 
 
-class CaseResult(BaseModel):
+class Decision(BaseModel):
+    outcome: Outcome
+    session_confidence: float
+    reasons: list[str] = Field(default_factory=list)
+    decided_by: str = "rules"
+
+
+class SessionResult(BaseModel):
     decision: Decision
-    rationale: str
-    confidence: float
-    documents: list[DocumentReading]
-    checks: list[CheckResult]
-    router: str = Field(description="Which component made the final call")
-    reviewer_summary: str | None = Field(None, description="Brief for the human reviewer (routed cases only)")
+    documents: list[DocumentResult]
+    cross_checks: list[CrossCheck] = Field(default_factory=list)
+    checks: list[CheckResult] = Field(default_factory=list)
+    review_summary: list[str] = Field(default_factory=list)
+    retake_requests: list[str] = Field(default_factory=list)
+    pipeline_version: str = ""

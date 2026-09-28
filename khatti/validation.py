@@ -1,50 +1,74 @@
-"""Deterministic checks. These run without any LLM and set the routing floor."""
+"""Deterministic validation (no LLM): field formats, enums, dates, and document-level date rules."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 
-from .models import CheckResult, DocumentReading, ReaderStatus, Severity
-from .registry import DocTypeSpec, Registry
+from .arabic import normalize, parse_date, to_western_digits
+from .crossdoc import RuleSet
+from .models import CheckResult, DocumentResult, FieldStatus, Severity
+from .registry import DocTypeSpec, FieldGroup, FieldSpec
 
-MIN_FIELD_AGREEMENT = 0.67
+
+@dataclass(frozen=True)
+class FormatResult:
+    valid: bool | None  # None: no validator applies to this field
+    reason: str | None = None
 
 
-def check_document(reading: DocumentReading, spec: DocTypeSpec, today: date) -> list[CheckResult]:
-    """Generic reading-quality checks, then the document type's own validators."""
+def check_format(field: FieldSpec, doc_type: str, value: str | None, ruleset: RuleSet | None) -> FormatResult:
+    """Value-only validation used both to pick between readers and to set invalid_format."""
+    if value is None:
+        return FormatResult(None)
+    if field.group is FieldGroup.DATES:
+        return FormatResult(True) if parse_date(value) else FormatResult(False, "unparseable date")
+    if ruleset is None:
+        return FormatResult(None)
+    fmt = ruleset.format_for(doc_type, field.name)
+    if fmt is not None:
+        compact = to_western_digits(value).replace(" ", "")
+        if fmt.pattern.fullmatch(compact):
+            return FormatResult(True)
+        return FormatResult(False, f"does not match expected format{'' if fmt.verified else ' (unverified spec)'}")
+    allowed = ruleset.enum_for(doc_type, field.name)
+    if allowed is not None:
+        ok = normalize(value) in {normalize(a) for a in allowed}
+        return FormatResult(ok, None if ok else "not an allowed value")
+    return FormatResult(None)
+
+
+def apply_date_rules(doc: DocumentResult, spec: DocTypeSpec, ruleset: RuleSet | None, today: date) -> list[CheckResult]:
+    """expiry > today, issue <= today, issue < expiry, age >= adult. Sets field statuses in place."""
     out: list[CheckResult] = []
 
-    def add(code: str, sev: Severity, msg: str) -> None:
-        out.append(CheckResult(code=code, severity=sev, message=msg, doc_type=reading.doc_type))
+    def add(code: str, sev: Severity, msg: str, field: str | None = None) -> None:
+        out.append(CheckResult(code=code, severity=sev, message=msg, slot=doc.slot, field=field))
 
-    for reader, status in reading.readers.items():
-        if status is not ReaderStatus.OK:
-            add(f"reader_{status.value}", Severity.INFO, f"Reader '{reader}' {status.value}")
+    def parsed(name: str):
+        f = doc.fields.get(name)
+        return parse_date(f.value) if f and f.value else None
 
-    if reading.readers_ok == 0:
-        add("no_reader_output", Severity.WARN, "No image reader returned a result")
-        return out
+    issue, expiry, dob = parsed("issue_date"), parsed("expiry_date"), parsed("date_of_birth")
+    for name, p in (("issue_date", issue), ("expiry_date", expiry), ("date_of_birth", dob)):
+        if p:
+            doc.fields[name].calendar = p.calendar
+            doc.fields[name].calendar_converted = p.converted
 
-    for f in spec.fields:
-        c = reading.fields.get(f.name)
-        if not c or not c.value:
-            if f.required:
-                add("missing_field", Severity.WARN, f"Field '{f.name}' could not be read")
-        elif c.agreement < MIN_FIELD_AGREEMENT:
-            add("low_agreement", Severity.WARN, f"Readers disagree on '{f.name}' (agreement {c.agreement:.2f})")
-
-    for validator in spec.validators:
-        out += validator(reading, today)
+    if expiry and expiry.value <= today:
+        doc.fields["expiry_date"].status = FieldStatus.EXPIRED
+        add("document_expired", Severity.FAIL, f"{spec.key} expired on {expiry.value.isoformat()}", "expiry_date")
+    if issue and issue.value > today:
+        doc.fields["issue_date"].status = FieldStatus.INVALID_FORMAT
+        add("issue_in_future", Severity.WARN, "Issue date is in the future", "issue_date")
+    if issue and expiry and issue.value >= expiry.value:
+        add("issue_after_expiry", Severity.WARN, "Issue date is not before expiry date", "issue_date")
+    if dob:
+        age = today.year - dob.value.year - ((today.month, today.day) < (dob.value.month, dob.value.day))
+        adult = ruleset.adult_age if ruleset else 18
+        if dob.value > today:
+            doc.fields["date_of_birth"].status = FieldStatus.INVALID_FORMAT
+            add("dob_in_future", Severity.WARN, "Date of birth is in the future", "date_of_birth")
+        elif age < adult:
+            add("underage", Severity.FAIL, f"Applicant is under {adult}", "date_of_birth")
     return out
-
-
-def check_case(readings: list[DocumentReading], registry: Registry, today: date) -> list[CheckResult]:
-    checks = [c for r in readings for c in check_document(r, registry.get(r.doc_type), today)]
-    by_domain: dict[str, list[DocumentReading]] = {}
-    for r in readings:
-        if r.readers_ok:
-            by_domain.setdefault(registry.get(r.doc_type).domain, []).append(r)
-    for domain, group in by_domain.items():
-        for rule in registry.cross_rules.get(domain, []):
-            checks += rule(group)
-    return checks

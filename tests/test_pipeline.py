@@ -1,161 +1,195 @@
 import asyncio
 
 import pytest
-from fastapi.testclient import TestClient
 
-from khatti.api import create_app
-from khatti.consensus import merge_field
-from khatti.models import Decision, DocumentInput, ReaderStatus
+from khatti.models import DocumentInput, ExtractedValue, FieldStatus, Line, Outcome, ReaderStatus, SourceSpan, Transcript
 from khatti.pipeline import Pipeline
-from khatti.services import Services
 from khatti.readers import StaticReader
+from khatti.structuring import LabelStructurer, locate, verify
 
-from .conftest import TODAY
-
-
-class FakeRouter:
-    name = "fake-nemotron"
-
-    def __init__(self, decision=Decision.APPROVE, fail=False):
-        self.decision, self.fail, self.calls = decision, fail, 0
-
-    async def decide(self, payload):
-        self.calls += 1
-        if self.fail:
-            raise RuntimeError("boom")
-        return self.decision, "model says so"
+from .conftest import TODAY, labelled
 
 
-def docs():
-    return [
-        DocumentInput(doc_type="national_id", image=b"img1"),
-        DocumentInput(doc_type="passport", image=b"img2"),
-    ]
+def reader(name, images, pages, overrides=None, samples=1, status=ReaderStatus.OK):
+    """A StaticReader returning labelled lines for each slot's image; overrides patch labels per slot."""
+    by_image = {}
+    for slot, img in images.items():
+        caption, pairs = pages[slot]
+        pairs = {**pairs, **(overrides or {}).get(slot, {})}
+        pairs = {k: v for k, v in pairs.items() if v is not None}
+        by_image[img] = (caption, [labelled(pairs)] * samples)
+    return StaticReader(name, by_image, status=status)
 
 
-def readers(id_fields, passport_fields, second_id=None):
-    return [
-        StaticReader("nvidia-vlm", {"national_id": id_fields, "passport": passport_fields}),
-        StaticReader("arabic-vlm", {"national_id": second_id or id_fields, "passport": passport_fields}),
-    ]
+def session(images, *slots):
+    return [DocumentInput(slot=s, image=images[s], mime_type="image/png") for s in slots]
 
 
-def run(pipeline):
-    return asyncio.run(pipeline.run(docs(), today=TODAY))
+ALL = ("national_id_front", "national_id_back", "commercial_registration", "tax_card")
 
 
-def test_merge_field_majority_and_agreement():
-    f = merge_field("name", {"a": "علي", "b": "على", "c": "عمر"})
-    assert f.value in ("علي", "على")
-    assert f.agreement == pytest.approx(2 / 3)
-    assert merge_field("x", {"a": None, "b": None}).agreement == 0.0
+def run(pipeline, docs):
+    return asyncio.run(pipeline.run(docs, today=TODAY))
 
 
-def test_clean_case_approved(id_fields, passport_fields):
-    router = FakeRouter()
-    result = run(Pipeline(readers(id_fields, passport_fields), router))
-    assert result.decision is Decision.APPROVE
-    assert result.router == "fake-nemotron"
-    assert result.confidence == 1.0
+def two_readers(images, pages, b_overrides=None, a_overrides=None):
+    return [reader("nvidia-omni", images, pages, a_overrides), reader("arabic-vlm", images, pages, b_overrides, samples=3)]
 
 
-def test_without_router_rules_decide(id_fields, passport_fields):
-    result = run(Pipeline(readers(id_fields, passport_fields)))
-    assert result.decision is Decision.APPROVE
-    assert result.router == "rules"
+# ---------------------------------------------------------------- copy-only guarantee
+
+def test_locate_tolerates_digit_script_and_whitespace_only():
+    text = "الرقم الوطني:  ١٩٩٠ ١٢٣٤"
+    start, end = locate("1990 1234", text)
+    assert text[start:end] == "١٩٩٠ ١٢٣٤"
+    assert locate("1990 1235", text) is None
 
 
-def test_router_can_escalate_but_not_reject(id_fields, passport_fields):
-    result = run(Pipeline(readers(id_fields, passport_fields), FakeRouter(Decision.REJECT)))
-    assert result.decision is Decision.HUMAN_REVIEW
+def test_structurer_cannot_invent_values():
+    t = Transcript(reader="r", lines=[Line(line_id="L1", text="الاسم الكامل: علي حسين")])
+    # model "corrects" a letter -> rejected
+    assert verify(ExtractedValue(value="علي حسن", spans=[]), t).value is None
+    assert verify(ExtractedValue(value="علي حسن", spans=[]), t).reason == "not_verbatim"
+    # stored value is cut from the line, not the model's string
+    v = verify(ExtractedValue(value="علي  حسين", spans=[SourceSpan(line_id="L1", start=0, end=0)]), t)
+    assert v.value == "علي حسين" and v.source_line_ids == ["L1"]
 
 
-def test_router_cannot_override_rule_escalation(id_fields, passport_fields):
-    disagreeing = {**id_fields, "id_number": "199087654321"}
-    result = run(Pipeline(readers(id_fields, passport_fields, disagreeing), FakeRouter(Decision.APPROVE)))
-    assert result.decision is Decision.HUMAN_REVIEW
-    assert result.router == "rules"
+def test_illegible_marker_is_never_exposed():
+    t = Transcript(reader="r", lines=[Line(line_id="L1", text="الرقم الوطني: 1990?2345678")])
+    v = verify(ExtractedValue(value="1990?2345678"), t)
+    assert v.value is None and v.reason == "illegible" and v.raw_partial == "1990?2345678"
 
 
-def test_router_failure_goes_to_human(id_fields, passport_fields):
-    result = run(Pipeline(readers(id_fields, passport_fields), FakeRouter(fail=True)))
-    assert result.decision is Decision.HUMAN_REVIEW
+# ---------------------------------------------------------------- end-to-end
+
+def test_clean_session_auto_passes(images, pages):
+    result = run(Pipeline(two_readers(images, pages), LabelStructurer()), session(images, *ALL))
+    assert result.decision.outcome is Outcome.AUTO_PASS, result.decision.reasons
+    front = result.documents[0]
+    assert front.fields["id_number"].value == "١٩٩٠١٢٣٤٥٦٧٨"  # stored as read
+    assert front.fields["id_number"].status is FieldStatus.OK
+    assert {c.rule: c.status for c in result.cross_checks}["name_id_vs_license"] == "match"
+    assert result.review_summary == []
 
 
-def test_expired_rejected(id_fields, passport_fields):
-    expired = {**id_fields, "expiry_date": "2020-01-01"}
-    result = run(Pipeline(readers(expired, passport_fields, expired), FakeRouter()))
-    assert result.decision is Decision.REJECT
+def test_glare_on_digits_is_blank_and_flagged(images, pages):
+    glare = {"national_id_front": {"الرقم الوطني": "١٩٩٠١٢?٤٥٦٧٨"}}
+    result = run(Pipeline(two_readers(images, pages, b_overrides=glare, a_overrides=glare), LabelStructurer()),
+                 session(images, *ALL))
+    f = result.documents[0].fields["id_number"]
+    assert f.value is None and f.status is FieldStatus.UNREADABLE and f.raw_partial
+    assert result.decision.outcome is Outcome.HUMAN_REVIEW
+    assert "UNREADABLE_FIELD" in result.decision.reasons
+    assert any("الرقم الوطني" in r for r in result.retake_requests)
 
 
-def test_failed_reader_lowers_confidence(id_fields, passport_fields):
-    rs = [
-        StaticReader("nvidia-vlm", {"national_id": id_fields, "passport": passport_fields}),
-        StaticReader("nvidia-omni", {}, status=ReaderStatus.UNAVAILABLE),
-    ]
-    result = run(Pipeline(rs, FakeRouter()))
-    assert result.confidence == 0.5
-    assert result.decision is Decision.HUMAN_REVIEW
+def test_readers_disagree_and_neither_valid_gives_null(images, pages):
+    a = {"national_id_front": {"الرقم الوطني": "1990123"}}  # too short
+    b = {"national_id_front": {"الرقم الوطني": "88887777"}}  # too short, different
+    result = run(Pipeline(two_readers(images, pages, b_overrides=b, a_overrides=a), LabelStructurer()),
+                 session(images, "national_id_front"))
+    f = result.documents[0].fields["id_number"]
+    assert f.value is None and f.status is FieldStatus.LOW_CONFIDENCE
+    assert set(v for v in f.candidates.values()) == {"1990123", "88887777"}
 
 
-def test_api_end_to_end(id_fields, passport_fields):
-    client = TestClient(create_app(Services(Pipeline(readers(id_fields, passport_fields)))))
-    assert client.get("/health").json()["readers"] == ["nvidia-vlm", "arabic-vlm"]
-    resp = client.post(
-        "/v1/cases/analyze",
-        files=[("files", ("id.jpg", b"a", "image/jpeg")), ("files", ("pp.jpg", b"b", "image/jpeg"))],
-        data={"doc_types": ["national_id", "passport"]},
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["decision"] in {"approve", "human_review"}
+def test_missing_grandfather_name_routes_with_partial_match(images, pages):
+    lic = {"commercial_registration": {"اسم المالك": "مثال أحمد محمد"}}
+    result = run(Pipeline(two_readers(images, pages, lic, lic), LabelStructurer()), session(images, *ALL))
+    assert {c.rule: c.status for c in result.cross_checks}["name_id_vs_license"] == "partial_match"
+    assert result.decision.outcome is Outcome.HUMAN_REVIEW
+    assert "NAME_PARTIAL_MATCH" in result.decision.reasons
 
 
-def test_api_rejects_mismatched_lengths(id_fields, passport_fields):
-    client = TestClient(create_app(Services(Pipeline(readers(id_fields, passport_fields)))))
-    resp = client.post(
-        "/v1/cases/analyze",
-        files=[("files", ("id.jpg", b"a", "image/jpeg"))],
-        data={"doc_types": ["national_id", "passport"]},
-    )
-    assert resp.status_code == 422
+def test_different_person_is_mismatch(images, pages):
+    tax = {"tax_card": {"اسم المكلف": "حسن علي عباس"}}
+    result = run(Pipeline(two_readers(images, pages, tax, tax), LabelStructurer()), session(images, *ALL))
+    assert {c.rule: c.status for c in result.cross_checks}["name_id_vs_tax"] == "mismatch"
+    assert result.documents[3].fields["holder_name_ar"].status is FieldStatus.MISMATCH
 
 
-class FakeReviewer:
+def test_expired_license_routes(images, pages):
+    exp = {"commercial_registration": {"تاريخ النفاذ": "2025/01/10"}}
+    result = run(Pipeline(two_readers(images, pages, exp, exp), LabelStructurer()), session(images, *ALL))
+    assert result.documents[2].fields["expiry_date"].status is FieldStatus.EXPIRED
+    assert "EXPIRED" in result.decision.reasons
+    assert {c.rule: c.status for c in result.cross_checks}["docs_not_expired"] == "fail"
+
+
+def test_hijri_expiry_is_converted_and_flagged(images, pages):
+    hij = {"tax_card": {"تاريخ النفاذ": "1450/05/01 هـ"}}
+    result = run(Pipeline(two_readers(images, pages, hij, hij), LabelStructurer()), session(images, "tax_card"))
+    f = result.documents[0].fields["expiry_date"]
+    assert f.calendar == "hijri" and f.calendar_converted
+
+
+def test_unavailable_nvidia_reader_degrades_to_review(images, pages):
+    readers = [reader("nvidia-omni", images, pages, status=ReaderStatus.UNAVAILABLE), reader("arabic-vlm", images, pages)]
+    result = run(Pipeline(readers, LabelStructurer()), session(images, *ALL))
+    assert result.documents[0].readers["nvidia-omni"] is ReaderStatus.UNAVAILABLE
+    assert any(c.code == "reader_unavailable" for c in result.checks)
+    # One surviving reader is not consensus.
+    assert result.decision.outcome is Outcome.HUMAN_REVIEW
+
+
+def test_wrong_document_in_slot(images, pages):
+    # The tax card image is uploaded into the national_id_front slot.
+    imgs = {**images, "national_id_front": images["tax_card"]}
+    pgs = {**pages, "national_id_front": pages["tax_card"]}
+    result = run(Pipeline(two_readers(imgs, pgs), LabelStructurer()), session(imgs, "national_id_front"))
+    assert any(c.code == "wrong_document_in_slot" for c in result.checks)
+    assert result.documents[0].doc_type == "tax_card"
+    assert "WRONG_DOCUMENT_IN_SLOT" in result.decision.reasons
+
+
+def test_primary_reader_breaks_ties(images, pages):
+    a = {"national_id_front": {"اسم الأم": "زينب عليوي"}}
+    readers = two_readers(images, pages, a_overrides=a)
+    p = Pipeline(readers, LabelStructurer(), primary_readers={"names": "arabic-vlm"})
+    f = run(p, session(images, "national_id_front")).documents[0].fields["mother_name_ar"]
+    assert f.value == "زينب علي"
+    assert f.status is FieldStatus.LOW_CONFIDENCE
+
+
+class FakeUltra:
     name = "fake-ultra"
 
-    def __init__(self):
-        self.calls = 0
+    def __init__(self, bullets):
+        self._bullets = bullets
+        self.payloads = []
 
-    async def summarize(self, payload, decision):
-        self.calls += 1
-        return "check the ID number"
-
-
-def test_reviewer_runs_only_on_routed_cases(id_fields, passport_fields):
-    reviewer = FakeReviewer()
-    clean = run(Pipeline(readers(id_fields, passport_fields), FakeRouter(), reviewer))
-    assert clean.decision is Decision.APPROVE and clean.reviewer_summary is None and reviewer.calls == 0
-
-    disagreeing = {**id_fields, "id_number": "199087654321"}
-    routed = run(Pipeline(readers(id_fields, passport_fields, disagreeing), FakeRouter(), reviewer))
-    assert routed.decision is Decision.HUMAN_REVIEW
-    assert routed.reviewer_summary == "check the ID number"
+    async def bullets(self, payload):
+        self.payloads.append(payload)
+        return self._bullets
 
 
-def test_api_rejects_unknown_doc_type(id_fields, passport_fields):
-    client = TestClient(create_app(Services(Pipeline(readers(id_fields, passport_fields)))))
-    resp = client.post(
-        "/v1/cases/analyze",
-        files=[("files", ("x.jpg", b"a", "image/jpeg"))],
-        data={"doc_types": ["driving_licence"]},
-    )
-    assert resp.status_code == 422
+def test_ultra_summary_uses_locked_placeholders(images, pages):
+    lic = {"commercial_registration": {"اسم المالك": "مثال أحمد محمد"}}
+    ultra = FakeUltra([
+        "Owner name {{field:commercial_registration.owner_name_ar}} omits the grandfather name; confirm same person.",
+        "The ID number is 199012345678.",  # writes a value itself -> dropped
+        "اسم مختلف",  # Arabic text -> dropped
+        "Check {{field:nope.nothing}}",  # unknown placeholder -> dropped
+    ])
+    result = run(Pipeline(two_readers(images, pages, lic, lic), LabelStructurer(), reviewer=ultra), session(images, *ALL))
+    assert result.review_summary == ["Owner name مثال أحمد محمد omits the grandfather name; confirm same person."]
+    # Ultra never sees field values
+    assert "مثال" not in str(ultra.payloads[0]["documents"])
 
 
-def test_api_key_required_when_configured(id_fields, passport_fields):
-    svc = Services(Pipeline(readers(id_fields, passport_fields)), api_keys=frozenset({"secret"}))
-    client = TestClient(create_app(svc))
-    assert client.get("/v1/document-types").status_code == 401
-    ok = client.get("/v1/document-types", headers={"Authorization": "Bearer secret"})
-    assert ok.status_code == 200
-    assert {t["key"] for t in ok.json()} == {"national_id", "passport", "residence_card"}
+def test_blurry_photo_requests_retake(images, pages):
+    import cv2
+    import numpy as np
+
+    img = cv2.imdecode(np.frombuffer(images["tax_card"], np.uint8), cv2.IMREAD_COLOR)
+    blurred = cv2.imencode(".png", cv2.GaussianBlur(img, (41, 41), 0))[1].tobytes()
+    imgs = {**images, "tax_card": blurred}
+    result = run(Pipeline(two_readers(imgs, pages), LabelStructurer()), session(imgs, "tax_card"))
+    assert "blur" in result.documents[0].quality.issues
+    assert "RETAKE_REQUESTED" in result.decision.reasons
+
+
+def test_unknown_slot_rejected(images):
+    with pytest.raises(KeyError):
+        run(Pipeline([StaticReader("r", {})], LabelStructurer()), [DocumentInput(slot="passport", image=b"x")])

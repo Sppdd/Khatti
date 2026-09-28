@@ -1,9 +1,17 @@
-"""Minimal client for OpenAI-compatible chat endpoints (Token Factory, Nebius Serverless)."""
+"""Minimal client for OpenAI-compatible chat endpoints (Token Factory, Nebius Serverless, vLLM).
+
+Every call is recorded in the active CallLog (if any) for the audit trail: model id,
+prompt hash, input image hashes, output, latency and token usage.
+"""
 
 from __future__ import annotations
 
+import contextvars
+import hashlib
 import json
 import re
+import time
+from dataclasses import dataclass, field
 
 import httpx
 
@@ -18,13 +26,64 @@ class EndpointUnavailable(Exception):
     """The endpoint could not be reached or is not serving (e.g. a stopped GPU endpoint)."""
 
 
+@dataclass
+class CallRecord:
+    endpoint: str
+    model: str
+    purpose: str
+    prompt_sha256: str
+    image_sha256: list[str]
+    latency_ms: int
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    ok: bool
+    output: str | None = None
+    error: str | None = None
+
+
+@dataclass
+class CallLog:
+    records: list[CallRecord] = field(default_factory=list)
+
+
+current_call_log: contextvars.ContextVar[CallLog | None] = contextvars.ContextVar("khatti_call_log", default=None)
+
+
+def sha256(data: bytes | str) -> str:
+    return hashlib.sha256(data.encode() if isinstance(data, str) else data).hexdigest()
+
+
+def _hash_prompt(messages: list[dict]) -> tuple[str, list[str]]:
+    """Hash the prompt with images replaced by their hashes (so the hash is stable and small)."""
+    images: list[str] = []
+
+    def strip(part):
+        if isinstance(part, dict) and part.get("type") == "image_url":
+            h = sha256(part["image_url"]["url"])
+            images.append(h)
+            return {"type": "image_url", "sha256": h}
+        return part
+
+    slim = [
+        {**m, "content": [strip(p) for p in m["content"]]} if isinstance(m.get("content"), list) else m
+        for m in messages
+    ]
+    return sha256(json.dumps(slim, ensure_ascii=False, sort_keys=True)), images
+
+
 class ChatClient:
     def __init__(self, endpoint: EndpointConfig, timeout_s: float = 60.0, http: httpx.AsyncClient | None = None):
         self.endpoint = endpoint
         self._http = http or httpx.AsyncClient(timeout=timeout_s)
 
     async def complete(
-        self, messages: list[dict], temperature: float = 0.0, max_tokens: int = 1500, json_mode: bool = True
+        self,
+        messages: list[dict],
+        temperature: float = 0.0,
+        max_tokens: int = 2000,
+        json_schema: dict | None = None,
+        json_mode: bool = True,
+        purpose: str = "",
     ) -> str:
         body: dict = {
             "model": self.endpoint.model,
@@ -32,20 +91,53 @@ class ChatClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
-        if json_mode and self.endpoint.json_mode:
+        if json_schema is not None and self.endpoint.json_mode:
+            body["response_format"] = {"type": "json_schema", "json_schema": {"name": "output", "schema": json_schema}}
+        elif json_mode and self.endpoint.json_mode:
             body["response_format"] = {"type": "json_object"}
+
+        started = time.perf_counter()
+        usage: dict = {}
+        output: str | None = None
+        error: str | None = None
         try:
-            resp = await self._http.post(
-                f"{self.endpoint.base_url.rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {self.endpoint.api_key}"},
-                json=body,
-            )
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
-            raise EndpointUnavailable(f"{self.endpoint.name}: {type(exc).__name__}") from exc
-        if resp.status_code in _UNAVAILABLE_STATUS:
-            raise EndpointUnavailable(f"{self.endpoint.name}: HTTP {resp.status_code}")
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"] or ""
+            try:
+                resp = await self._http.post(
+                    f"{self.endpoint.base_url.rstrip('/')}/chat/completions",
+                    headers={"Authorization": f"Bearer {self.endpoint.api_key}"},
+                    json=body,
+                )
+            except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                raise EndpointUnavailable(f"{self.endpoint.name}: {type(exc).__name__}") from exc
+            if resp.status_code in _UNAVAILABLE_STATUS:
+                raise EndpointUnavailable(f"{self.endpoint.name}: HTTP {resp.status_code}")
+            resp.raise_for_status()
+            payload = resp.json()
+            usage = payload.get("usage") or {}
+            output = payload["choices"][0]["message"]["content"] or ""
+            return output
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            log = current_call_log.get()
+            if log is not None:
+                prompt_hash, images = _hash_prompt(messages)
+                log.records.append(
+                    CallRecord(
+                        endpoint=self.endpoint.name,
+                        model=self.endpoint.model,
+                        purpose=purpose,
+                        prompt_sha256=prompt_hash,
+                        image_sha256=images,
+                        latency_ms=int((time.perf_counter() - started) * 1000),
+                        prompt_tokens=usage.get("prompt_tokens"),
+                        completion_tokens=usage.get("completion_tokens"),
+                        ok=error is None,
+                        output=output,
+                        error=error,
+                    )
+                )
 
     async def aclose(self) -> None:
         await self._http.aclose()

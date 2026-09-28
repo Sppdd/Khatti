@@ -1,4 +1,9 @@
 # Local development stack: Postgres + API + worker. Images stay on a local volume.
+x-app-env: &app-env
+  KHATTI_DATABASE_URL: postgresql://khatti_app:khatti_app@db:5432/khatti
+  KHATTI_LOCAL_STORAGE_DIR: /data/objects
+  KHATTI_PUBLIC_BASE_URL: http://localhost:8000
+
 services:
   db:
     image: postgres:16
@@ -7,13 +12,13 @@ services:
       POSTGRES_PASSWORD: khatti
       POSTGRES_DB: khatti
     ports: ["5432:5432"]
-    volumes: [pgdata:/var/lib/postgresql/data]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres-init.sql:/docker-entrypoint-initdb.d/10-app-role.sql:ro
   api:
     build: .
     env_file: .env
-    environment:
-      KHATTI_DATABASE_URL: postgresql://khatti:khatti@db:5432/khatti
-      KHATTI_LOCAL_STORAGE_DIR: /data/objects
+    environment: *app-env
     ports: ["8000:8000"]
     volumes: [objects:/data/objects]
     depends_on: [db]
@@ -21,9 +26,7 @@ services:
     build: .
     command: ["python", "-m", "khatti.worker"]
     env_file: .env
-    environment:
-      KHATTI_DATABASE_URL: postgresql://khatti:khatti@db:5432/khatti
-      KHATTI_LOCAL_STORAGE_DIR: /data/objects
+    environment: *app-env
     volumes: [objects:/data/objects]
     depends_on: [db]
 volumes:

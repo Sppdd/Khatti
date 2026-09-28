@@ -1,0 +1,1023 @@
+openapi: 3.1.0
+info:
+  title: Khatti API
+  description: 'Arabic-first KYC document agent: reads Iraqi onboarding documents,
+    cross-checks them, and hands the file to a human when unsure.'
+  version: 0.3.0
+paths:
+  /health:
+    get:
+      summary: Health
+      operationId: health_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Health Health Get
+  /v1/auth/token:
+    post:
+      tags:
+      - auth
+      summary: Auth Token
+      description: Mint a short-lived JWT for a reviewer or the mobile app (service
+        API keys only).
+      operationId: auth_token_v1_auth_token_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Auth Token V1 Auth Token Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /v1/kyc/sessions:
+    post:
+      tags:
+      - kyc
+      summary: Create Session
+      operationId: create_session_v1_kyc_sessions_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSession'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/kyc/sessions/{session_id}/uploads:
+    post:
+      tags:
+      - kyc
+      summary: Reissue Uploads
+      operationId: reissue_uploads_v1_kyc_sessions__session_id__uploads_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadsRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/kyc/sessions/{session_id}/submit:
+    post:
+      tags:
+      - kyc
+      summary: Submit
+      operationId: submit_v1_kyc_sessions__session_id__submit_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/kyc/sessions/{session_id}:
+    get:
+      tags:
+      - kyc
+      summary: Get Session
+      operationId: get_session_v1_kyc_sessions__session_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Session V1 Kyc Sessions  Session Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/kyc/analyze:
+    post:
+      tags:
+      - kyc
+      summary: Analyze
+      description: 'Synchronous demo/eval endpoint: runs the pipeline in the request
+        and stores nothing.'
+      operationId: analyze_v1_kyc_analyze_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_analyze_v1_kyc_analyze_post'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /v1/documents:
+    post:
+      tags:
+      - documents
+      summary: Create Document
+      operationId: create_document_v1_documents_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDocument'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/documents/{document_id}/submit:
+    post:
+      tags:
+      - documents
+      summary: Submit Document
+      operationId: submit_document_v1_documents__document_id__submit_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: document_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Document Id
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/documents/{document_id}:
+    get:
+      tags:
+      - documents
+      summary: Get Document
+      operationId: get_document_v1_documents__document_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: document_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Document Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Document V1 Documents  Document Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/uploads/{token}:
+    put:
+      tags:
+      - uploads
+      summary: Upload
+      description: Stand-in for an S3 presigned PUT when images are stored on local
+        disk (development).
+      operationId: upload_v1_uploads__token__put
+      parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Token
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/review/queue:
+    get:
+      tags:
+      - review
+      summary: Review Queue
+      operationId: review_queue_v1_review_queue_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: reason
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                title: Response Review Queue V1 Review Queue Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/review/items/{item_id}:
+    get:
+      tags:
+      - review
+      summary: Review Item
+      operationId: review_item_v1_review_items__item_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: item_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Item Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Review Item V1 Review Items  Item Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/review/items/{item_id}/decision:
+    post:
+      tags:
+      - review
+      summary: Review Decision
+      operationId: review_decision_v1_review_items__item_id__decision_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: item_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Item Id
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDecision'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/review/documents/{document_id}/image:
+    get:
+      tags:
+      - review
+      summary: Review Image
+      operationId: review_image_v1_review_documents__document_id__image_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: document_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Document Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/webhooks:
+    post:
+      tags:
+      - webhooks
+      summary: Register Webhook
+      operationId: register_webhook_v1_webhooks_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - webhooks
+      summary: List Webhooks
+      operationId: list_webhooks_v1_webhooks_get
+      security:
+      - HTTPBearer: []
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                title: Response List Webhooks V1 Webhooks Get
+  /v1/webhooks/{webhook_id}:
+    delete:
+      tags:
+      - webhooks
+      summary: Delete Webhook
+      operationId: delete_webhook_v1_webhooks__webhook_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: webhook_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Webhook Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/document-types:
+    get:
+      tags:
+      - registry
+      summary: Document Types
+      operationId: document_types_v1_document_types_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                type: array
+                title: Response Document Types V1 Document Types Get
+      security:
+      - HTTPBearer: []
+components:
+  schemas:
+    Body_analyze_v1_kyc_analyze_post:
+      properties:
+        files:
+          items:
+            type: string
+            contentMediaType: application/octet-stream
+          type: array
+          title: Files
+          description: Document photos
+        slots:
+          items:
+            type: string
+          type: array
+          title: Slots
+          description: Slot per file, same order
+      type: object
+      required:
+      - files
+      - slots
+      title: Body_analyze_v1_kyc_analyze_post
+    CheckResult:
+      properties:
+        code:
+          type: string
+          title: Code
+        severity:
+          $ref: '#/components/schemas/Severity'
+        message:
+          type: string
+          title: Message
+        slot:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Slot
+        field:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Field
+      type: object
+      required:
+      - code
+      - severity
+      - message
+      title: CheckResult
+    CreateDocument:
+      properties:
+        type:
+          type: string
+          title: Type
+      type: object
+      required:
+      - type
+      title: CreateDocument
+    CreateSession:
+      properties:
+        slots:
+          items:
+            type: string
+          type: array
+          title: Slots
+          description: Required documents, e.g. national_id_front, national_id_back,
+            commercial_registration, tax_card
+        external_ref:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: External Ref
+      type: object
+      required:
+      - slots
+      title: CreateSession
+    CrossCheck:
+      properties:
+        rule:
+          type: string
+          title: Rule
+        status:
+          type: string
+          title: Status
+        score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Score
+        detail:
+          type: string
+          title: Detail
+          default: ''
+      type: object
+      required:
+      - rule
+      - status
+      title: CrossCheck
+    Decision:
+      properties:
+        outcome:
+          $ref: '#/components/schemas/Outcome'
+        session_confidence:
+          type: number
+          title: Session Confidence
+        reasons:
+          items:
+            type: string
+          type: array
+          title: Reasons
+        decided_by:
+          type: string
+          title: Decided By
+          default: rules
+      type: object
+      required:
+      - outcome
+      - session_confidence
+      title: Decision
+    DocumentResult:
+      properties:
+        slot:
+          type: string
+          title: Slot
+        doc_type:
+          type: string
+          title: Doc Type
+        classification_confidence:
+          type: number
+          title: Classification Confidence
+          default: 1.0
+        quality:
+          anyOf:
+          - $ref: '#/components/schemas/QualityReport'
+          - type: 'null'
+        fields:
+          additionalProperties:
+            $ref: '#/components/schemas/FieldResult'
+          type: object
+          title: Fields
+        readers:
+          additionalProperties:
+            $ref: '#/components/schemas/ReaderStatus'
+          type: object
+          title: Readers
+        image_hashes:
+          items:
+            type: string
+          type: array
+          title: Image Hashes
+      type: object
+      required:
+      - slot
+      - doc_type
+      title: DocumentResult
+    FieldResult:
+      properties:
+        name:
+          type: string
+          title: Name
+        value:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Value
+        status:
+          $ref: '#/components/schemas/FieldStatus'
+        confidence:
+          type: number
+          maximum: 1.0
+          minimum: 0.0
+          title: Confidence
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        raw_partial:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Raw Partial
+        calendar:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Calendar
+        calendar_converted:
+          type: boolean
+          title: Calendar Converted
+          default: false
+        candidates:
+          additionalProperties:
+            anyOf:
+            - type: string
+            - type: 'null'
+          type: object
+          title: Candidates
+          description: reader#sample -> verified value
+        sources:
+          additionalProperties:
+            items:
+              type: string
+            type: array
+          type: object
+          title: Sources
+          description: reader#sample -> line ids
+        features:
+          additionalProperties:
+            type: number
+          type: object
+          title: Features
+      type: object
+      required:
+      - name
+      - value
+      - status
+      - confidence
+      title: FieldResult
+    FieldStatus:
+      type: string
+      enum:
+      - ok
+      - low_confidence
+      - unreadable
+      - mismatch
+      - invalid_format
+      - expired
+      - not_present
+      title: FieldStatus
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    Outcome:
+      type: string
+      enum:
+      - auto_pass
+      - human_review
+      title: Outcome
+    QualityReport:
+      properties:
+        width:
+          type: integer
+          title: Width
+        height:
+          type: integer
+          title: Height
+        metrics:
+          additionalProperties:
+            type: number
+          type: object
+          title: Metrics
+        issues:
+          items:
+            type: string
+          type: array
+          title: Issues
+        guidance_ar:
+          items:
+            type: string
+          type: array
+          title: Guidance Ar
+        guidance_en:
+          items:
+            type: string
+          type: array
+          title: Guidance En
+      type: object
+      required:
+      - width
+      - height
+      - metrics
+      title: QualityReport
+    ReaderStatus:
+      type: string
+      enum:
+      - ok
+      - unavailable
+      - error
+      title: ReaderStatus
+    ReviewDecision:
+      properties:
+        action:
+          type: string
+          enum:
+          - approve
+          - reject
+          - request_retake
+          title: Action
+        corrections:
+          additionalProperties:
+            anyOf:
+            - type: string
+            - type: 'null'
+          type: object
+          title: Corrections
+          description: '"<slot>.<field>" -> corrected value'
+        retake_slots:
+          items:
+            type: string
+          type: array
+          title: Retake Slots
+        note:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Note
+      type: object
+      required:
+      - action
+      title: ReviewDecision
+    SessionResult:
+      properties:
+        decision:
+          $ref: '#/components/schemas/Decision'
+        documents:
+          items:
+            $ref: '#/components/schemas/DocumentResult'
+          type: array
+          title: Documents
+        cross_checks:
+          items:
+            $ref: '#/components/schemas/CrossCheck'
+          type: array
+          title: Cross Checks
+        checks:
+          items:
+            $ref: '#/components/schemas/CheckResult'
+          type: array
+          title: Checks
+        review_summary:
+          items:
+            type: string
+          type: array
+          title: Review Summary
+        retake_requests:
+          items:
+            type: string
+          type: array
+          title: Retake Requests
+        pipeline_version:
+          type: string
+          title: Pipeline Version
+          default: ''
+      type: object
+      required:
+      - decision
+      - documents
+      title: SessionResult
+    Severity:
+      type: string
+      enum:
+      - info
+      - warn
+      - fail
+      title: Severity
+    TokenRequest:
+      properties:
+        subject:
+          type: string
+          maxLength: 200
+          title: Subject
+          description: Reviewer or app user id
+        role:
+          type: string
+          enum:
+          - reviewer
+          - app
+          title: Role
+        ttl_seconds:
+          type: integer
+          maximum: 3600.0
+          minimum: 60.0
+          title: Ttl Seconds
+          default: 900
+      type: object
+      required:
+      - subject
+      - role
+      title: TokenRequest
+    UploadsRequest:
+      properties:
+        slots:
+          items:
+            type: string
+          type: array
+          title: Slots
+      type: object
+      required:
+      - slots
+      title: UploadsRequest
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    WebhookRequest:
+      properties:
+        url:
+          type: string
+          title: Url
+        events:
+          items:
+            type: string
+          type: array
+          title: Events
+      type: object
+      required:
+      - url
+      - events
+      title: WebhookRequest
+  securitySchemes:
+    HTTPBearer:
+      type: http
+      scheme: bearer

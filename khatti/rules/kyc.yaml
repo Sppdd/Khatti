@@ -1,0 +1,59 @@
+# KYC ruleset for Iraqi merchant onboarding.
+#
+# Document references use <doc>.<field>. A <doc> of "national_id" resolves to whichever
+# of national_id_front / national_id_back carries the field.
+#
+# Formats marked verified: false come from weak or no public sources. They are template
+# parameters, not facts: the commercial registration and tax card formats are our own
+# "Iraqi-style (fictional)" synthetic specs. No checksum is applied anywhere because we
+# found no public checksum algorithm, and we do not invent one.
+
+version: kyc-2026.10
+
+adult_age: 18
+
+formats:
+  national_id_front.id_number:
+    pattern: '^\d{12}$'
+    verified: false
+    note: "12 digits is widely reported by secondary sources; length and digit class only, no checksum"
+  national_id_back.family_number:
+    pattern: '^[0-9A-Z]{10,18}$'
+    verified: false
+    note: "Iraqi-style (fictional)"
+  commercial_registration.registration_number:
+    pattern: '^\d{2}/\d{5,6}$'
+    verified: false
+    note: "Iraqi-style (fictional) synthetic spec"
+  tax_card.tax_number:
+    pattern: '^\d{9}$'
+    verified: false
+    note: "Iraqi-style (fictional) synthetic spec"
+
+enums:
+  national_id_front.sex: ["ذكر", "انثى", "أنثى", "M", "F"]
+  national_id_front.blood_type: ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]
+
+lifetimes:
+  # Wikipedia lists National Card expiry as "10 years after issuance". Warn, never fail.
+  national_id: {years: 10, tolerance_days: 30}
+
+rules:
+  - id: name_id_vs_license
+    left: national_id.full_name_ar
+    right: commercial_registration.owner_name_ar
+    matcher: arabic_name_aligned
+    on_partial: review
+  - id: name_id_vs_tax
+    left: national_id.full_name_ar
+    right: tax_card.holder_name_ar
+    matcher: arabic_name_aligned
+    on_partial: review
+  - id: business_name_license_vs_tax
+    left: commercial_registration.business_name_ar
+    right: tax_card.business_name_ar
+    matcher: normalized_fuzzy
+    threshold: 0.9
+  - id: docs_not_expired
+    each: [national_id.expiry_date, commercial_registration.expiry_date, tax_card.expiry_date]
+    check: after_today
