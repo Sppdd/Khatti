@@ -11,6 +11,7 @@ import functools
 import hashlib
 import json
 from contextlib import asynccontextmanager
+from datetime import date
 from typing import Literal
 
 import jwt
@@ -59,6 +60,14 @@ class ReviewDecision(BaseModel):
     corrections: dict[str, str | None] = Field(default_factory=dict, description='"<slot>.<field>" -> corrected value')
     retake_slots: list[str] = Field(default_factory=list)
     note: str | None = Field(None, max_length=2000)
+
+
+class ReminderRequest(BaseModel):
+    title: str = Field(..., max_length=200, description="Shown to your staff; do not put personal data here")
+    due_at: date
+    notify_at: date | None = Field(None, description="When to send reminder.due (default: due_at)")
+    session_id: str | None = None
+    external_ref: str | None = Field(None, max_length=200)
 
 
 class WebhookRequest(BaseModel):
@@ -358,6 +367,28 @@ def create_app(services: Services | None = None) -> FastAPI:
     @_errors
     async def delete_webhook(webhook_id: str, request: Request, p: Principal = Depends(role())) -> Response:
         await _service(request).delete_webhook(p, webhook_id)
+        return Response(status_code=204)
+
+    # ------------------------------------------------------------ reminders
+
+    @app.post("/v1/reminders", status_code=201, tags=["reminders"])
+    @_errors
+    async def create_reminder(body: ReminderRequest, request: Request, key: str = Depends(idempotency_key),
+                              p: Principal = Depends(role())):
+        return await _idempotent(request, p, key, 201, lambda: _service(request).create_reminder(
+            p, body.title, body.due_at, body.notify_at, body.session_id, body.external_ref))
+
+    @app.get("/v1/reminders", tags=["reminders"])
+    @_errors
+    async def list_reminders(request: Request, status: str | None = None, due_before: date | None = None, limit: int = 100,
+                             p: Principal = Depends(role("reviewer"))) -> list[dict]:
+        """Expiry reminders are created automatically from extracted dates (lead time KHATTI_REMINDER_LEAD_DAYS)."""
+        return await _service(request).list_reminders(p, status, due_before, limit)
+
+    @app.delete("/v1/reminders/{reminder_id}", status_code=204, tags=["reminders"])
+    @_errors
+    async def cancel_reminder(reminder_id: str, request: Request, p: Principal = Depends(role())) -> Response:
+        await _service(request).cancel_reminder(p, reminder_id)
         return Response(status_code=204)
 
     # ------------------------------------------------------------ registry

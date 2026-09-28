@@ -7,12 +7,13 @@ import hashlib
 import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 from psycopg.types.json import Jsonb
 
 from . import webhooks
+from .arabic import parse_date
 from .auth import Principal
 from .crypto import Keyring
 from .llm import CallLog, current_call_log
@@ -48,6 +49,7 @@ class KycService:
     http: httpx.AsyncClient | None = None
     webhook_allowed_hosts: frozenset[str] = frozenset()
     retention_days: int = 30
+    reminder_lead_days: int = 30
 
     # ------------------------------------------------------------ sessions
 
@@ -237,6 +239,7 @@ class KycService:
                 "image_sha256": {d.slot: d.image_hashes for d in result.documents},
                 "model_calls": len(log.records),
             })
+            await self._schedule_expiry_reminders(conn, tid, sid, result)
             await self._emit(conn, tid, "session.needs_review" if needs_review else "session.completed",
                              {"session_id": sid, "status": status, "outcome": result.decision.outcome.value,
                               "reasons": result.decision.reasons})
@@ -407,6 +410,10 @@ class KycService:
                     "UPDATE sessions SET status = 'completed', final_outcome = %s, updated_at = now() WHERE id = %s", (action, sid)
                 )
                 event, status = "session.completed", "completed"
+                if action == "reject":
+                    await conn.execute(
+                        "UPDATE reminders SET status = 'cancelled' WHERE session_id = %s AND status = 'scheduled'", (sid,)
+                    )
             await self.store.audit(conn, tid, sid, p.subject, f"review.{action}", {
                 "review_item_id": item_id, "corrected_fields": sorted(corrections), "retake_slots": retake_slots,
             })
@@ -465,6 +472,83 @@ class KycService:
         ok, status = await webhooks.post(self.http or httpx.AsyncClient(timeout=10), w["url"], d["payload"], secret)
         await self.store.finish_delivery(d["id"], ok, status, None if ok else webhooks.next_backoff(d["attempts"], d["created_at"]))
         return True
+
+    # ------------------------------------------------------------ reminders
+
+    async def _schedule_expiry_reminders(self, conn, tid, sid: str, result: SessionResult) -> None:
+        """One reminder per readable expiry date, lead_days before it (re-created on reprocessing)."""
+        await conn.execute("DELETE FROM reminders WHERE session_id = %s AND kind = 'document_expiry' AND status = 'scheduled'", (sid,))
+        for doc in result.documents:
+            f = doc.fields.get("expiry_date")
+            parsed = parse_date(f.value) if f and f.value else None
+            if parsed is None:
+                continue
+            due = parsed.value
+            await conn.execute(
+                """INSERT INTO reminders (id, tenant_id, session_id, slot, field, kind, title, due_at, notify_at)
+                   VALUES (%s, %s, %s, %s, 'expiry_date', 'document_expiry', %s, %s, %s)""",
+                (new_id("rem"), tid, sid, doc.slot, f"{doc.slot} expires", due, due - timedelta(days=self.reminder_lead_days)),
+            )
+
+    async def create_reminder(self, p: Principal, title: str, due_at: date, notify_at: date | None,
+                              session_id: str | None, external_ref: str | None) -> dict:
+        rid = new_id("rem")
+        async with self.store.tx(p.tenant_id) as conn:
+            if session_id:
+                await self._session_row(conn, session_id)
+            await conn.execute(
+                """INSERT INTO reminders (id, tenant_id, session_id, kind, title, due_at, notify_at, external_ref)
+                   VALUES (%s, %s, %s, 'custom', %s, %s, %s, %s)""",
+                (rid, p.tenant_id, session_id, title, due_at, notify_at or due_at, external_ref),
+            )
+            await self.store.audit(conn, p.tenant_id, session_id, p.subject, "reminder.created", {"reminder_id": rid})
+        return await self._reminder(p, rid)
+
+    async def _reminder(self, p: Principal, rid: str) -> dict:
+        async with self.store.tx(p.tenant_id) as conn:
+            row = await (await conn.execute("SELECT * FROM reminders WHERE id = %s", (rid,))).fetchone()
+        if row is None:
+            raise NotFound("reminder not found")
+        return {k: v for k, v in row.items() if k != "tenant_id"}
+
+    async def list_reminders(self, p: Principal, status: str | None = None, due_before: date | None = None, limit: int = 100) -> list[dict]:
+        async with self.store.tx(p.tenant_id) as conn:
+            cur = await conn.execute(
+                """SELECT id, session_id, slot, field, kind, title, due_at, notify_at, status, external_ref, created_at, sent_at
+                     FROM reminders WHERE (%s::text IS NULL OR status = %s::text) AND (%s::date IS NULL OR due_at <= %s::date)
+                    ORDER BY due_at LIMIT %s""",
+                (status, status, due_before, due_before, min(max(limit, 1), 500)),
+            )
+            return await cur.fetchall()
+
+    async def cancel_reminder(self, p: Principal, rid: str) -> None:
+        async with self.store.tx(p.tenant_id) as conn:
+            cur = await conn.execute("UPDATE reminders SET status = 'cancelled' WHERE id = %s AND status = 'scheduled' RETURNING id", (rid,))
+            if await cur.fetchone() is None:
+                raise NotFound("no scheduled reminder with that id")
+            await self.store.audit(conn, p.tenant_id, None, p.subject, "reminder.cancelled", {"reminder_id": rid})
+
+    async def reminders_sweep(self, today: date | None = None) -> int:
+        """Emit reminder.due for every scheduled reminder whose notify date has come. Returns count."""
+        today = today or datetime.now(timezone.utc).date()
+        sent = 0
+        async with self.store.system_tx() as conn:
+            tenants = [r["id"] for r in await (await conn.execute("SELECT id FROM tenants")).fetchall()]
+        for tid in tenants:
+            async with self.store.tx(tid) as conn:
+                cur = await conn.execute(
+                    "SELECT * FROM reminders WHERE status = 'scheduled' AND notify_at <= %s ORDER BY notify_at FOR UPDATE SKIP LOCKED",
+                    (today,),
+                )
+                for r in await cur.fetchall():
+                    await conn.execute("UPDATE reminders SET status = 'sent', sent_at = now() WHERE id = %s", (r["id"],))
+                    await self._emit(conn, tid, "reminder.due", {
+                        "reminder_id": r["id"], "session_id": r["session_id"], "slot": r["slot"], "field": r["field"],
+                        "kind": r["kind"], "title": r["title"], "due_at": r["due_at"].isoformat(), "external_ref": r["external_ref"],
+                    })
+                    await self.store.audit(conn, tid, r["session_id"], "scheduler", "reminder.sent", {"reminder_id": r["id"]})
+                    sent += 1
+        return sent
 
     # ------------------------------------------------------------ retention
 

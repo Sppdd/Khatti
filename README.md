@@ -59,7 +59,8 @@ short-lived JWTs from `POST /v1/auth/token`. Every POST needs an `Idempotency-Ke
 | `POST /v1/documents` · `POST /v1/documents/{id}/submit` · `GET /v1/documents/{id}` | Single-document extraction |
 | `GET /v1/review/queue` · `GET /v1/review/items/{id}` · `GET /v1/review/documents/{id}/image` | Reviewer queue, candidates, decrypted image |
 | `POST /v1/review/items/{id}/decision` | Approve / reject / request retake, with per-field corrections (kept as labelled data) |
-| `POST /v1/webhooks` | Events `session.completed`, `session.needs_review`, `session.retake_requested`; signed `Khatti-Signature: t=…,v1=…`, retried with backoff for 24h |
+| `POST /v1/webhooks` | Events `session.completed`, `session.needs_review`, `session.retake_requested`, `reminder.due`; signed `Khatti-Signature: t=…,v1=…`, retried with backoff for 24h |
+| `POST /v1/reminders` · `GET /v1/reminders` · `DELETE /v1/reminders/{id}` | Reminders: every extracted expiry date schedules one automatically (30 days ahead, `KHATTI_REMINDER_LEAD_DAYS`); partners can add their own. Due reminders fire the `reminder.due` webhook |
 | `POST /v1/kyc/analyze` | Synchronous demo/eval run; stores nothing |
 
 ## Data layer (plan L)

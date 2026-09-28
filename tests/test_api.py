@@ -243,3 +243,42 @@ def test_single_document_endpoint_and_bad_upload_token(tmp_path, images, pages):
             await env.close()
 
     asyncio.run(scenario())
+
+
+def test_expiry_reminders(tmp_path, images, pages):
+    from datetime import date
+
+    async def scenario():
+        env = await Env().start(tmp_path, images, pages)
+        api, A = env.api, env.key_a
+        try:
+            await api.post("/v1/webhooks", json={"url": "http://bank.test/hook", "events": ["reminder.due"]}, headers=env.h(A, "w"))
+            r = await api.post("/v1/kyc/sessions", json={"slots": ALL}, headers=env.h(A, "s"))
+            await env.upload(r.json()["uploads"], images)
+            sid = r.json()["session_id"]
+            await api.post(f"/v1/kyc/sessions/{sid}/submit", headers=env.h(A, "sub"))
+            await process_one(env.service)
+
+            rems = (await api.get("/v1/reminders", headers=env.h(A))).json()
+            by_slot = {x["slot"]: x for x in rems}
+            assert set(by_slot) == {"national_id_back", "commercial_registration", "tax_card"}
+            assert by_slot["tax_card"]["due_at"] == "2027-02-01" and by_slot["tax_card"]["notify_at"] == "2027-01-02"
+
+            custom = await api.post("/v1/reminders", json={"title": "annual KYC refresh", "due_at": "2027-09-28", "session_id": sid},
+                                    headers=env.h(A, "r1"))
+            assert custom.status_code == 201, custom.text
+            assert (await api.delete(f"/v1/reminders/{custom.json()['id']}", headers=env.h(A))).status_code == 204
+
+            assert await env.service.reminders_sweep(date(2027, 1, 5)) == 2  # tax card + license notify dates passed
+            assert await env.service.reminders_sweep(date(2027, 1, 5)) == 0  # sent once
+            while await env.service.deliver_one():
+                pass
+            events = [json.loads(h.content) for h in env.hooks]
+            assert {e["data"]["slot"] for e in events} == {"tax_card", "commercial_registration"}
+            assert all(e["event"] == "reminder.due" for e in events)
+            left = (await api.get("/v1/reminders?status=scheduled", headers=env.h(A))).json()
+            assert [x["slot"] for x in left] == ["national_id_back"]
+        finally:
+            await env.close()
+
+    asyncio.run(scenario())

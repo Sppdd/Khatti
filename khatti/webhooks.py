@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 import httpx
 
 SIGNATURE_HEADER = "Khatti-Signature"
-EVENTS = frozenset({"session.completed", "session.needs_review", "session.retake_requested"})
+EVENTS = frozenset({"session.completed", "session.needs_review", "session.retake_requested", "reminder.due"})
 RETRY_WINDOW = timedelta(hours=24)
 # Backoff after attempt n (1-based); the last value repeats until the window closes.
 BACKOFF = [timedelta(seconds=s) for s in (30, 120, 600, 1800, 3600, 7200, 14400)]

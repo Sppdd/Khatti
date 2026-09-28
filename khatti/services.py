@@ -79,5 +79,6 @@ async def services_from_env() -> Services:
             http=svc.http,
             webhook_allowed_hosts=settings.webhook_allowed_hosts,
             retention_days=settings.retention_days,
+            reminder_lead_days=settings.reminder_lead_days,
         )
     return svc

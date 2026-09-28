@@ -51,6 +51,7 @@ class Settings:
     data_key: str = ""  # base64 32 bytes; envelope encryption KEK + HMAC key
     jwt_secret: str = ""
     retention_days: int = 30
+    reminder_lead_days: int = 30
     rate_limit_per_minute: int = 120
     webhook_allowed_hosts: frozenset[str] = frozenset()
 
@@ -106,6 +107,7 @@ def load_settings() -> Settings:
         data_key=os.getenv("KHATTI_DATA_KEY", ""),
         jwt_secret=os.getenv("KHATTI_JWT_SECRET", ""),
         retention_days=int(os.getenv("KHATTI_RETENTION_DAYS", "30")),
+        reminder_lead_days=int(os.getenv("KHATTI_REMINDER_LEAD_DAYS", "30")),
         rate_limit_per_minute=int(os.getenv("KHATTI_RATE_LIMIT_PER_MINUTE", "120")),
         webhook_allowed_hosts=_csv("KHATTI_WEBHOOK_ALLOWED_HOSTS"),
     )

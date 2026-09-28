@@ -15,7 +15,7 @@ from .service import MAX_ATTEMPTS, KycService
 from .services import services_from_env
 
 log = logging.getLogger("khatti.worker")
-RETENTION_EVERY_S = 3600
+RETENTION_EVERY_S = 3600  # retention and reminder sweeps
 
 
 async def process_one(service: KycService) -> bool:
@@ -56,6 +56,9 @@ async def run(poll_interval_s: float = 1.0) -> None:
                 n = await service.retention_sweep()
                 if n:
                     log.info("retention: deleted %s originals", n)
+                n = await service.reminders_sweep()
+                if n:
+                    log.info("reminders: %s due", n)
                 last_sweep = time.monotonic()
             if not busy:
                 try:

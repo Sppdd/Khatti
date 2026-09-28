@@ -179,6 +179,24 @@ CREATE TABLE IF NOT EXISTS model_calls (
     created_at         timestamptz NOT NULL DEFAULT now()
 );
 
+-- Reminders from extracted dates (e.g. a license expiring in 30 days) or created by partners.
+CREATE TABLE IF NOT EXISTS reminders (
+    id            text PRIMARY KEY,
+    tenant_id     uuid NOT NULL REFERENCES tenants (id),
+    session_id    text REFERENCES sessions (id) ON DELETE CASCADE,
+    slot          text,
+    field         text,
+    kind          text NOT NULL,  -- document_expiry | custom
+    title         text NOT NULL,  -- no PII
+    due_at        date NOT NULL,
+    notify_at     date NOT NULL,
+    status        text NOT NULL DEFAULT 'scheduled',  -- scheduled | sent | cancelled
+    external_ref  text,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    sent_at       timestamptz
+);
+CREATE INDEX IF NOT EXISTS reminders_due_idx ON reminders (tenant_id, notify_at) WHERE status = 'scheduled';
+
 -- Append-only, hash-chained audit log (per tenant).
 CREATE TABLE IF NOT EXISTS audit_log (
     id          bigserial PRIMARY KEY,
@@ -220,7 +238,7 @@ DO $$
 DECLARE t text;
 BEGIN
     FOREACH t IN ARRAY ARRAY['sessions', 'documents', 'fields', 'field_versions', 'checks', 'decisions',
-                             'review_items', 'review_actions', 'webhooks',
+                             'review_items', 'review_actions', 'webhooks', 'reminders',
                              'idempotency_keys', 'model_calls', 'audit_log']
     LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);

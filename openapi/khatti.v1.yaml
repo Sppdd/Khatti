@@ -559,6 +559,116 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /v1/reminders:
+    post:
+      tags:
+      - reminders
+      summary: Create Reminder
+      operationId: create_reminder_v1_reminders_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReminderRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - reminders
+      summary: List Reminders
+      description: Expiry reminders are created automatically from extracted dates
+        (lead time KHATTI_REMINDER_LEAD_DAYS).
+      operationId: list_reminders_v1_reminders_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      - name: due_before
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Due Before
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                title: Response List Reminders V1 Reminders Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/reminders/{reminder_id}:
+    delete:
+      tags:
+      - reminders
+      summary: Cancel Reminder
+      operationId: cancel_reminder_v1_reminders__reminder_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: reminder_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Reminder Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /v1/document-types:
     get:
       tags:
@@ -871,6 +981,40 @@ components:
       - unavailable
       - error
       title: ReaderStatus
+    ReminderRequest:
+      properties:
+        title:
+          type: string
+          maxLength: 200
+          title: Title
+          description: Shown to your staff; do not put personal data here
+        due_at:
+          type: string
+          format: date
+          title: Due At
+        notify_at:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Notify At
+          description: 'When to send reminder.due (default: due_at)'
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+        external_ref:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: External Ref
+      type: object
+      required:
+      - title
+      - due_at
+      title: ReminderRequest
     RetakeRequest:
       properties:
         slot:
