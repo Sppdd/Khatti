@@ -87,14 +87,19 @@ class VisionChatReader:
     async def _one(self, content: list[dict], sample: int) -> Transcript:
         temperature = 0.0 if self.samples == 1 else self.sample_temperature
         try:
-            raw = await self.client.complete(
+            done = await self.client.complete_full(
                 [{"role": "user", "content": content}],
                 temperature=temperature,
                 max_tokens=4000,
                 json_schema=TRANSCRIPT_SCHEMA,
                 purpose=f"transcribe#{sample}",
+                logprobs=self.client.endpoint.logprobs,
             )
-            return parse_transcript(parse_json_object(raw), self.name, sample)
+            t = parse_transcript(parse_json_object(done.text), self.name, sample)
+            if done.token_logprobs:
+                for line in t.lines:
+                    line.conf = done.span_confidence(line.text)
+            return t
         except EndpointUnavailable as exc:
             return Transcript(reader=self.name, sample=sample, status=ReaderStatus.UNAVAILABLE, error=str(exc))
         except Exception as exc:

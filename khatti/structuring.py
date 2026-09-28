@@ -75,7 +75,7 @@ def verify(ev: ExtractedValue, transcript: Transcript) -> VerifiedValue:
     if ev.spans and all(s.line_id in lines for s in ev.spans):
         cut = " ".join(lines[s.line_id][s.start : s.end] for s in ev.spans)
         if 0 <= min(s.start for s in ev.spans) and _canon(cut)[0] == _canon(ev.value)[0] and cut.strip():
-            return _finish(cut.strip(), [s.line_id for s in ev.spans])
+            return _finish(cut.strip(), [s.line_id for s in ev.spans], transcript)
     # 2) locate the value inside the cited lines (individually, then joined), else anywhere
     candidates = [[c] for c in dict.fromkeys(cited)]
     if len(cited) > 1:
@@ -87,14 +87,19 @@ def verify(ev: ExtractedValue, transcript: Transcript) -> VerifiedValue:
         text = " ".join(lines[i] for i in ids)
         hit = locate(ev.value, text)
         if hit:
-            return _finish(text[hit[0] : hit[1]], ids)
+            return _finish(text[hit[0] : hit[1]], ids, transcript)
     return VerifiedValue(value=None, reason="not_verbatim")
 
 
-def _finish(text: str, line_ids: list[str]) -> VerifiedValue:
+def _finish(text: str, line_ids: list[str], transcript: Transcript) -> VerifiedValue:
+    lines = [l for l in transcript.lines if l.line_id in line_ids]
+    boxes = [l.bbox for l in lines if l.bbox]
+    bbox = [min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)] if boxes else None
+    confs = [l.conf for l in lines if l.conf is not None]
+    line_conf = sum(confs) / len(confs) if confs else None
     if any(m in text for m in ILLEGIBLE_MARKERS):
-        return VerifiedValue(value=None, source_line_ids=line_ids, reason="illegible", raw_partial=text)
-    return VerifiedValue(value=text, source_line_ids=line_ids)
+        return VerifiedValue(value=None, source_line_ids=line_ids, reason="illegible", raw_partial=text, bbox=bbox, line_conf=line_conf)
+    return VerifiedValue(value=text, source_line_ids=line_ids, bbox=bbox, line_conf=line_conf)
 
 
 # ---------------------------------------------------------------- Nemotron Super
@@ -170,15 +175,33 @@ class NemotronStructurer:
             "fields": {f.name: f.description for f in spec.fields},
             "lines": [{"line_id": l.line_id, "text": l.text} for l in transcript.lines],
         }
-        reply = await self.client.complete(
-            [
-                {"role": "system", "content": STRUCTURE_PROMPT},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-            ],
-            json_schema=structure_schema(spec),
-            purpose=f"structure:{spec.key}",
-        )
-        return parse_extracted(parse_json_object(reply), spec)
+        messages = [
+            {"role": "system", "content": STRUCTURE_PROMPT},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+        ]
+        reply = await self.client.complete(messages, json_schema=structure_schema(spec), purpose=f"structure:{spec.key}")
+        try:
+            return parse_extracted(_as_object(reply), spec)
+        except ValueError as exc:
+            # One repair retry (plan risk table), then give up: the caller treats the
+            # transcript as unstructured and every field from it as unreadable.
+            messages += [
+                {"role": "assistant", "content": reply[:4000]},
+                {"role": "user", "content": f"That reply was invalid ({exc}). Reply again with only the JSON object "
+                                            'of the form {"fields": {...}} described above.'},
+            ]
+            reply = await self.client.complete(messages, json_schema=structure_schema(spec), purpose=f"structure_repair:{spec.key}")
+            return parse_extracted(_as_object(reply), spec)
+
+
+def _as_object(reply: str) -> dict:
+    try:
+        obj = parse_json_object(reply)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"not JSON: {exc.msg}") from exc
+    if not isinstance(obj.get("fields", obj), dict):
+        raise ValueError("'fields' is not an object")
+    return obj
 
 
 # ---------------------------------------------------------------- deterministic fallback

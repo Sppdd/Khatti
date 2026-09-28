@@ -63,6 +63,8 @@ class VerifiedValue(BaseModel):
     source_line_ids: list[str] = Field(default_factory=list)
     reason: str | None = None
     raw_partial: str | None = None  # partial reading of an illegible field, reviewer-only
+    bbox: list[float] | None = None  # union of the cited lines' boxes (relative to the original photo)
+    line_conf: float | None = None  # mean token confidence of the cited lines, when logprobs exist
 
 
 # ---------------------------------------------------------------- results
@@ -86,6 +88,7 @@ class FieldResult(BaseModel):
     raw_partial: str | None = None
     calendar: str | None = None  # for dates: gregorian | hijri
     calendar_converted: bool = False
+    bbox: list[float] | None = None  # where the field is on the original photo, if a reader said
     candidates: dict[str, str | None] = Field(default_factory=dict, description="reader#sample -> verified value")
     sources: dict[str, list[str]] = Field(default_factory=dict, description="reader#sample -> line ids")
     features: dict[str, float] = Field(default_factory=dict)
@@ -135,6 +138,16 @@ class CrossCheck(BaseModel):
     detail: str = ""
 
 
+class RetakeRequest(BaseModel):
+    """A specific, actionable retake message for the person holding the phone."""
+
+    slot: str
+    field: str | None = None
+    reason: str  # glare | thumb | cut_off | blur | unreadable | <quality issue code>
+    message_ar: str
+    message_en: str
+
+
 class Outcome(str, Enum):
     AUTO_PASS = "auto_pass"
     HUMAN_REVIEW = "human_review"
@@ -153,5 +166,5 @@ class SessionResult(BaseModel):
     cross_checks: list[CrossCheck] = Field(default_factory=list)
     checks: list[CheckResult] = Field(default_factory=list)
     review_summary: list[str] = Field(default_factory=list)
-    retake_requests: list[str] = Field(default_factory=list)
+    retake_requests: list[RetakeRequest] = Field(default_factory=list)
     pipeline_version: str = ""

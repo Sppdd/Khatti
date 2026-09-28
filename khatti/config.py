@@ -22,6 +22,7 @@ class EndpointConfig:
     api_key: str
     json_mode: bool = True  # send response_format; support varies by model
     samples: int = 1  # >1: self-consistency sampling at temperature 0.7
+    logprobs: bool = False  # request token logprobs (only where the inventory shows support)
     vendor: str = ""
 
 
@@ -78,6 +79,7 @@ def load_settings() -> Settings:
             api_key=r.get("api_key") or tf_key,
             json_mode=r.get("json_mode", True),
             samples=int(r.get("samples", 1)),
+            logprobs=bool(r.get("logprobs", False)),
             vendor=r.get("vendor", ""),
         )
         for r in json.loads(os.getenv("KHATTI_READERS", "[]"))

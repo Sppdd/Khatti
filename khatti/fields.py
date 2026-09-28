@@ -63,13 +63,15 @@ def merge_field(
     illegible = [x for x in readings if x.value.reason == "illegible"]
     raw_partial = illegible[0].value.raw_partial if illegible else None
     candidates = {x.key: x.value.value for x in readings}
+    bbox = next((x.value.bbox for x in readings if x.value.bbox), None)
+    line_confs = [x.value.line_conf for x in readings if x.value.line_conf is not None]
     sources = {x.key: x.value.source_line_ids for x in readings if x.value.source_line_ids}
     values = {r: v for r, v in per_reader.items() if v}
 
     def result(value, status, reason=None, feats=None, conf=0.0) -> FieldResult:
         return FieldResult(
             name=field.name, value=value, status=status, confidence=round(conf, 4), reason=reason,
-            raw_partial=raw_partial, candidates=candidates, sources=sources, features=feats or {},
+            raw_partial=raw_partial, candidates=candidates, sources=sources, features=feats or {}, bbox=bbox,
         )
 
     if not values:
@@ -115,7 +117,7 @@ def merge_field(
         "glare": (quality.metrics.get("glare_fraction", 0.0) if quality else 0.0),
         "blur": (quality.metrics.get("blur_score", 0.0) if quality else 0.0),
         "handwritten": 1.0 if field.handwritten else 0.0,
-        "logprob": 0.5,
+        "logprob": sum(line_confs) / len(line_confs) if line_confs else 0.5,
     }
     conf = calibrator.predict(features, field.group)
 

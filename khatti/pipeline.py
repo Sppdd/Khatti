@@ -23,13 +23,14 @@ from .models import (
     FieldStatus,
     Outcome,
     ReaderStatus,
+    RetakeRequest,
     SessionResult,
     Severity,
     Transcript,
 )
 from .orchestrator import DEFAULT_TAU_DOC, Reviewer, decide, fallback_bullets, render_bullets, reviewer_payload
 from .preprocess import prepare
-from .quality import assess
+from .quality import FIELD_MESSAGES, assess, field_obstruction
 from .readers import Reader
 from .registry import FieldGroup, Registry, default_registry
 from .structuring import Structurer, verify
@@ -65,7 +66,7 @@ class Pipeline:
 
     # ------------------------------------------------------------ one document
 
-    async def run_document(self, doc: DocumentInput, today: date) -> tuple[DocumentResult, list[CheckResult]]:
+    async def run_document(self, doc: DocumentInput, today: date) -> tuple[DocumentResult, list[CheckResult], list[RetakeRequest]]:
         spec = self.registry.get(doc.slot)
         ruleset = self.registry.rulesets.get(spec.domain)
         checks: list[CheckResult] = []
@@ -119,7 +120,8 @@ class Pipeline:
         checks += apply_date_rules(result, spec, ruleset, today)
         for validator in spec.validators:
             checks += validator(result, today)
-        return result, checks
+        retakes = await asyncio.to_thread(self._retakes, result, img, quad)
+        return result, checks, retakes
 
     # ------------------------------------------------------------ session
 
@@ -129,8 +131,8 @@ class Pipeline:
             self.registry.get(d.slot)  # fail fast on unknown slots
 
         done = await asyncio.gather(*(self.run_document(d, today) for d in documents))
-        docs = [d for d, _ in done]
-        checks = [c for _, cs in done for c in cs]
+        docs = [d for d, _, _ in done]
+        checks = [c for _, cs, _ in done for c in cs]
 
         cross: list[CrossCheck] = []
         # Rules use the slot's type: a document in the wrong slot is already flagged.
@@ -147,24 +149,34 @@ class Pipeline:
             documents=docs,
             cross_checks=cross,
             checks=checks,
-            retake_requests=self._retakes(docs),
+            retake_requests=[r for _, _, rs in done for r in rs],
             pipeline_version=self.version,
         )
         if decision.outcome is Outcome.HUMAN_REVIEW:
             result.review_summary = await self._brief(docs, cross, checks, decision)
         return result
 
-    def _retakes(self, docs: list[DocumentResult]) -> list[str]:
+    def _retakes(self, doc: DocumentResult, img, quad) -> list[RetakeRequest]:
+        """Photo-level guidance plus a specific message per unreadable required field
+        (glare over it, a finger on it, cut off, blurred), located from the reader's line box."""
+        spec = self.registry.get(doc.slot)
+        name_ar, name_en = spec.label_ar or doc.slot, doc.slot.replace("_", " ")
         out = []
-        for d in docs:
-            spec = self.registry.get(d.slot)
-            if d.quality and d.quality.retake:
-                out += [f"{spec.label_ar or d.slot}: {m}" for m in d.quality.guidance_ar]
-            for f in spec.fields:
-                r = d.fields.get(f.name)
-                if f.required and r and r.status is FieldStatus.UNREADABLE:
-                    out.append(f"{spec.label_ar or d.slot}: {f.label_ar or f.name} غير مقروء، أعد التصوير")
-        return list(dict.fromkeys(out))
+        if doc.quality and doc.quality.retake:
+            for code, ar, en in zip(doc.quality.issues, doc.quality.guidance_ar, doc.quality.guidance_en):
+                out.append(RetakeRequest(slot=doc.slot, reason=code, message_ar=f"{name_ar}: {ar}", message_en=f"{name_en}: {en}"))
+        for f in spec.fields:
+            r = doc.fields.get(f.name)
+            if not (f.required and r and r.status is FieldStatus.UNREADABLE):
+                continue
+            why = field_obstruction(img, r.bbox, quad)
+            ar, en = FIELD_MESSAGES[why]
+            out.append(RetakeRequest(
+                slot=doc.slot, field=f.name, reason=why,
+                message_ar=f"{name_ar}: " + ar.format(ar=f.label_ar or f.name),
+                message_en=f"{name_en}: " + en.format(en=f.label_en or f.name),
+            ))
+        return out
 
     async def _brief(self, docs, cross, checks, decision) -> list[str]:
         if self.reviewer is not None:

@@ -5,6 +5,7 @@ One container (`jobs/Dockerfile`) runs every job. Outputs go to Object Storage a
 
 | Job | Command | What it does |
 |---|---|---|
+| inventory | `python -m jobs.inventory` | Week 0: lists the models your key sees (`/v1/models?verbose=true`) and live-probes text, image input, JSON mode, `json_schema` and logprobs. Settles which vision models are really served; suggests `KHATTI_READERS`. `deploy/rtt.sh` measures latency from Mosul to eu-north1 / eu-west1. |
 | synth | `python -m jobs.synth --sessions 150 --out data/synth` | Fictional Iraqi-style sessions with cross-document variants, rendered with real Arabic shaping (SPECIMEN watermark, fictional authorities, no emblems). Split by identity 60/20/20. |
 | augment | `python -m jobs.augment --src data/synth --per-render 5` | Phone-photo conditions (angle, dim/backlit, shadow, glare, blur, thumb, cut corner, crumple, JPEG) with quality buckets. Fields covered by glare/thumb or out of frame become unreadable in ground truth. |
 | bakeoff | `python -m jobs.bakeoff --data data/synth` | Week-1 reader bake-off on tune-split captures: Arabic-name CER, digit exact match (Arabic-Indic separately), dates. Writes the decision memo and `KHATTI_PRIMARY_READERS`. |

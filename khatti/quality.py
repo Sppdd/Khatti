@@ -163,3 +163,50 @@ def _skin_on_edge(img: np.ndarray, quad: Quad) -> float:
 def _messages(report: QualityReport) -> None:
     report.guidance_ar = [MESSAGES[i][0] for i in report.issues]
     report.guidance_en = [MESSAGES[i][1] for i in report.issues]
+
+
+FIELD_MESSAGES = {
+    "glare": ("انعكاس ضوء فوق {ar}، غيّر زاوية التصوير وأعد المحاولة", "Glare over the {en}; tilt the document and retake"),
+    "thumb": ("إصبعك يغطي {ar}، أعد التصوير", "Your finger covers the {en}; retake"),
+    "cut_off": ("{ar} خارج الإطار، أدخل المستند كاملاً", "The {en} is cut off; fit the whole document in the frame"),
+    "blur": ("{ar} غير واضح، ثبّت الهاتف وأعد التصوير", "The {en} is blurry; hold steady and retake"),
+    "unreadable": ("{ar} غير مقروء، أعد التصوير", "The {en} is unreadable; retake"),
+}
+
+
+def _skin(img: np.ndarray) -> np.ndarray:
+    return cv2.inRange(cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb), (0, 138, 77), (255, 173, 127)) > 0
+
+
+def field_obstruction(img: np.ndarray | None, bbox: list[float] | None, quad: Quad | None = None) -> str:
+    """Why a field could not be read, from its box on the original photo:
+    cut_off | glare | thumb | blur | unreadable (unknown)."""
+    if img is None or not bbox:
+        return "unreadable"
+    h, w = img.shape[:2]
+    x0, y0, x1, y1 = bbox
+    if min(x0, y0) <= 0.005 or max(x1, y1) >= 0.995:
+        return "cut_off"
+    px = [int(max(0, min(1, v)) * s) for v, s in zip(bbox, (w, h, w, h))]
+    roi = img[px[1] : max(px[3], px[1] + 1), px[0] : max(px[2], px[0] + 1)]
+    if roi.size == 0:
+        return "unreadable"
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    if ((hsv[..., 2] >= 240) & (hsv[..., 1] <= 40)).mean() > 0.2:
+        return "glare"
+    skin_here = _skin(roi).mean()
+    if skin_here > 0.4:
+        # A beige card is not a thumb: compare with the document as a whole.
+        doc_skin = _skin(img).mean() if quad is None else _skin_in_quad(img, quad)
+        if doc_skin < 0.25:
+            return "thumb"
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    if gray.shape[0] >= 8 and gray.shape[1] >= 8 and cv2.Laplacian(gray, cv2.CV_64F).var() < 40:
+        return "blur"
+    return "unreadable"
+
+
+def _skin_in_quad(img: np.ndarray, quad: Quad) -> float:
+    doc = np.zeros(img.shape[:2], np.uint8)
+    cv2.fillConvexPoly(doc, quad.points.astype(np.int32), 1)
+    return float(_skin(img)[doc > 0].mean()) if doc.any() else 0.0

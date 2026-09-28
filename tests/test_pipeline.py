@@ -81,7 +81,8 @@ def test_glare_on_digits_is_blank_and_flagged(images, pages):
     assert f.value is None and f.status is FieldStatus.UNREADABLE and f.raw_partial
     assert result.decision.outcome is Outcome.HUMAN_REVIEW
     assert "UNREADABLE_FIELD" in result.decision.reasons
-    assert any("الرقم الوطني" in r for r in result.retake_requests)
+    req = next(r for r in result.retake_requests if r.field == "id_number")
+    assert "الرقم الوطني" in req.message_ar and req.slot == "national_id_front"
 
 
 def test_readers_disagree_and_neither_valid_gives_null(images, pages):
@@ -193,3 +194,52 @@ def test_blurry_photo_requests_retake(images, pages):
 def test_unknown_slot_rejected(images):
     with pytest.raises(KeyError):
         run(Pipeline([StaticReader("r", {})], LabelStructurer()), [DocumentInput(slot="passport", image=b"x")])
+
+
+class BoxReader:
+    """Returns one transcript whose ID-number line is illegible and located at `box`."""
+
+    samples = 1
+
+    def __init__(self, name, box):
+        self.name, self.box = name, box
+
+    async def transcribe(self, images):
+        return [Transcript(reader=self.name, caption="national card front", lines=[
+            Line(line_id="L1", text="الاسم الكامل: مثال أحمد جاسم محمد", bbox=[0.4, 0.2, 0.9, 0.28]),
+            Line(line_id="L2", text="الرقم الوطني: ١٩٩٠?٢٣٤٥٦٧٨", bbox=self.box),
+        ])]
+
+
+def _retake_for(image_png, box):
+    readers = [BoxReader("a", box), BoxReader("b", box)]
+    result = run(Pipeline(readers, LabelStructurer()), [DocumentInput(slot="national_id_front", image=image_png)])
+    return next(r for r in result.retake_requests if r.field == "id_number")
+
+
+def test_retake_names_glare_over_the_field():
+    import cv2
+    import numpy as np
+
+    from .conftest import card_image
+
+    img = cv2.imdecode(np.frombuffer(card_image(1), np.uint8), cv2.IMREAD_COLOR)
+    h, w = img.shape[:2]
+    box = [0.45, 0.55, 0.85, 0.65]
+    cv2.rectangle(img, (int(0.45 * w), int(0.55 * h)), (int(0.85 * w), int(0.65 * h)), (255, 255, 255), -1)
+    req = _retake_for(cv2.imencode(".png", img)[1].tobytes(), box)
+    assert req.reason == "glare"
+    assert "انعكاس ضوء فوق الرقم الوطني" in req.message_ar and "Glare over the ID number" in req.message_en
+
+
+def test_retake_names_a_thumb_and_a_cut_off_field():
+    import cv2
+    import numpy as np
+
+    from .conftest import card_image
+
+    img = cv2.imdecode(np.frombuffer(card_image(1), np.uint8), cv2.IMREAD_COLOR)
+    h, w = img.shape[:2]
+    cv2.ellipse(img, (int(0.65 * w), int(0.6 * h)), (int(0.2 * w), int(0.06 * h)), 0, 0, 360, (120, 150, 205), -1)
+    assert _retake_for(cv2.imencode(".png", img)[1].tobytes(), [0.45, 0.55, 0.85, 0.65]).reason == "thumb"
+    assert _retake_for(card_image(1), [0.5, 0.9, 1.0, 1.0]).reason == "cut_off"

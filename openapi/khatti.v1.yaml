@@ -769,6 +769,13 @@ components:
           type: boolean
           title: Calendar Converted
           default: false
+        bbox:
+          anyOf:
+          - items:
+              type: number
+            type: array
+          - type: 'null'
+          title: Bbox
         candidates:
           additionalProperties:
             anyOf:
@@ -864,6 +871,34 @@ components:
       - unavailable
       - error
       title: ReaderStatus
+    RetakeRequest:
+      properties:
+        slot:
+          type: string
+          title: Slot
+        field:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Field
+        reason:
+          type: string
+          title: Reason
+        message_ar:
+          type: string
+          title: Message Ar
+        message_en:
+          type: string
+          title: Message En
+      type: object
+      required:
+      - slot
+      - reason
+      - message_ar
+      - message_en
+      title: RetakeRequest
+      description: A specific, actionable retake message for the person holding the
+        phone.
     ReviewDecision:
       properties:
         action:
@@ -922,7 +957,7 @@ components:
           title: Review Summary
         retake_requests:
           items:
-            type: string
+            $ref: '#/components/schemas/RetakeRequest'
           type: array
           title: Retake Requests
         pipeline_version:

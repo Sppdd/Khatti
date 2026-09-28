@@ -242,7 +242,8 @@ class KycService:
                               "reasons": result.decision.reasons})
             if result.retake_requests:
                 await self._emit(conn, tid, "session.retake_requested",
-                                 {"session_id": sid, "status": status, "retake_requests": result.retake_requests})
+                                 {"session_id": sid, "status": status,
+                                  "retake_requests": [r.model_dump() for r in result.retake_requests]})
 
     async def fail(self, tenant_id, sid: str, error: str) -> None:
         async with self.store.tx(tenant_id) as conn:
@@ -307,7 +308,7 @@ class KycService:
             })
         view["cross_checks"] = [c.model_dump() for c in result.cross_checks]
         view["review_summary"] = result.review_summary
-        view["retake_requests"] = result.retake_requests
+        view["retake_requests"] = [r.model_dump() for r in result.retake_requests]
         if reviewer_view:
             view["checks"] = [c.model_dump(mode="json") for c in result.checks]
             view["pipeline_version"] = result.pipeline_version

@@ -94,3 +94,35 @@ def test_lightning_classifier_respects_layout():
 def test_reviewer_returns_bullets():
     ultra = NemotronReviewer(client(lambda r: reply('{"bullets": ["Check {{field:tax_card.tax_number}}."]}'), "ultra"))
     assert asyncio.run(ultra.bullets({})) == ["Check {{field:tax_card.tax_number}}."]
+
+
+def test_structurer_repairs_once_then_verifies():
+    spec = REG.get("tax_card")
+    t = Transcript(reader="r", lines=[Line(line_id="L1", text="الرقم الضريبي: 123456789")])
+    replies = iter(["sorry, here you go: fields = tax_number 123456789",
+                    json.dumps({"fields": {"tax_number": {"value": "123456789", "line_ids": ["L1"]}}})])
+    calls = []
+
+    def handler(req):
+        calls.append(json.loads(req.content))
+        return reply(next(replies))
+
+    out = asyncio.run(NemotronStructurer(client(handler, "super")).structure(t, spec))
+    assert len(calls) == 2 and "invalid" in calls[1]["messages"][-1]["content"]
+    assert verify(out["tax_number"], t).value == "123456789"
+
+
+def test_logprobs_map_to_line_confidence():
+    text = json.dumps({"caption": "c", "lines": [{"line_id": "L1", "text": "abc"}]})
+    # tokens covering the reply; the "abc" token is uncertain
+    before, after = text.split("abc")
+    tokens = [{"token": before, "logprob": -0.01}, {"token": "abc", "logprob": -1.0}, {"token": after, "logprob": -0.01}]
+
+    def handler(req):
+        assert json.loads(req.content)["logprobs"] is True
+        return httpx.Response(200, json={"choices": [{"message": {"content": text}, "logprobs": {"content": tokens}}]})
+
+    ep = EndpointConfig(name="r", base_url="https://llm.test/v1", model="m", api_key="k", logprobs=True)
+    reader = VisionChatReader(ChatClient(ep, http=httpx.AsyncClient(transport=httpx.MockTransport(handler))))
+    line = asyncio.run(reader.transcribe([(b"x", "image/png")]))[0].lines[0]
+    assert abs(line.conf - 0.3679) < 0.01  # exp(-1)

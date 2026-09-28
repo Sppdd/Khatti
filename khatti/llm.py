@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextvars
 import hashlib
 import json
+import math
 import re
 import time
 from dataclasses import dataclass, field
@@ -71,6 +72,29 @@ def _hash_prompt(messages: list[dict]) -> tuple[str, list[str]]:
     return sha256(json.dumps(slim, ensure_ascii=False, sort_keys=True)), images
 
 
+@dataclass
+class Completion:
+    text: str
+    token_logprobs: list[tuple[str, float]] | None = None  # when requested and returned
+
+    def span_confidence(self, fragment: str) -> float | None:
+        """exp(mean logprob) of the tokens that produced `fragment` in the reply, if locatable."""
+        if not self.token_logprobs or not fragment:
+            return None
+        start = self.text.find(fragment)
+        if start < 0:
+            start = self.text.find(json.dumps(fragment, ensure_ascii=False)[1:-1])
+        if start < 0:
+            return None
+        end, pos, picked = start + len(fragment), 0, []
+        for tok, lp in self.token_logprobs:
+            nxt = pos + len(tok)
+            if nxt > start and pos < end:
+                picked.append(lp)
+            pos = nxt
+        return math.exp(sum(picked) / len(picked)) if picked else None
+
+
 class ChatClient:
     def __init__(self, endpoint: EndpointConfig, timeout_s: float = 60.0, http: httpx.AsyncClient | None = None):
         self.endpoint = endpoint
@@ -85,6 +109,19 @@ class ChatClient:
         json_mode: bool = True,
         purpose: str = "",
     ) -> str:
+        done = await self.complete_full(messages, temperature, max_tokens, json_schema, json_mode, purpose)
+        return done.text
+
+    async def complete_full(
+        self,
+        messages: list[dict],
+        temperature: float = 0.0,
+        max_tokens: int = 2000,
+        json_schema: dict | None = None,
+        json_mode: bool = True,
+        purpose: str = "",
+        logprobs: bool = False,
+    ) -> "Completion":
         body: dict = {
             "model": self.endpoint.model,
             "messages": messages,
@@ -95,6 +132,8 @@ class ChatClient:
             body["response_format"] = {"type": "json_schema", "json_schema": {"name": "output", "schema": json_schema}}
         elif json_mode and self.endpoint.json_mode:
             body["response_format"] = {"type": "json_object"}
+        if logprobs:
+            body["logprobs"] = True
 
         started = time.perf_counter()
         usage: dict = {}
@@ -114,8 +153,13 @@ class ChatClient:
             resp.raise_for_status()
             payload = resp.json()
             usage = payload.get("usage") or {}
-            output = payload["choices"][0]["message"]["content"] or ""
-            return output
+            choice = payload["choices"][0]
+            output = choice["message"]["content"] or ""
+            tokens = None
+            lp = (choice.get("logprobs") or {}).get("content") if logprobs else None
+            if lp:
+                tokens = [(t.get("token", ""), float(t.get("logprob", 0.0))) for t in lp]
+            return Completion(output, tokens)
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             raise
