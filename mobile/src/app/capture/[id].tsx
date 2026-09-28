@@ -169,10 +169,10 @@ export default function CaptureDetail() {
                   <Animated.View
                     key={`${it.name}-${i}`}
                     entering={FadeInDown.delay(at(3) + i * 50)}
-                    style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space(4), paddingVertical: space(3), borderTopWidth: i ? 1 : 0, borderColor: colors.line }}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: space(3), paddingHorizontal: space(4), paddingVertical: space(3), borderTopWidth: i ? 1 : 0, borderColor: colors.line }}
                   >
                     <View style={{ flex: 1 }}>
-                      <Txt>{it.name}</Txt>
+                      <Txt style={{ textAlign: 'left' }}>{it.name}</Txt>
                       {(it.quantity != null || it.unit) && (
                         <Txt variant="caption">
                           {[it.quantity, it.unit].filter((x) => x != null && x !== '').join(' ')}

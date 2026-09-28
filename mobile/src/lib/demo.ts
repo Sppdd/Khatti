@@ -71,3 +71,30 @@ const samples: Record<ExtractMode, Omit<ExtractResult, 'mode'>> = {
 export function demoExtract(mode: ExtractMode): ExtractResult {
   return { mode, ...samples[mode] };
 }
+
+// Sample bridge data for demo mode.
+export const DEMO_PROVIDERS = [
+  { name: 'nebius', label: 'Nebius Token Factory', kind: 'openai' as const, features: ['chat', 'embeddings', 'images', 'models', 'files', 'batches', 'fine_tuning'], default: true },
+  { name: 'hf', label: 'Hugging Face Inference Providers', kind: 'openai' as const, features: ['chat', 'models'], default: false },
+  { name: 'hfe', label: 'Hugging Face Inference Endpoints (dedicated)', kind: 'hf-endpoints' as const, features: ['chat', 'completions', 'embeddings', 'models'], default: false },
+];
+
+export const DEMO_MODELS = [
+  { id: 'nebius/Qwen/Qwen2.5-VL-72B-Instruct', provider: 'nebius' },
+  { id: 'nebius/meta-llama/Llama-3.3-70B-Instruct', provider: 'nebius' },
+  { id: 'nebius/nvidia/Llama-3_3-Nemotron-Super-49B-v1_5', provider: 'nebius' },
+  { id: 'nebius/black-forest-labs/flux-schnell', provider: 'nebius' },
+  { id: 'nebius/BAAI/bge-en-icl', provider: 'nebius' },
+  { id: 'hf/Qwen/Qwen2.5-VL-7B-Instruct', provider: 'hf' },
+  { id: 'hf/meta-llama/Llama-3.1-8B-Instruct', provider: 'hf' },
+  { id: 'hfe/qwen2-5-vl-7b-instruct-1a2', provider: 'hfe', owned_by: 'Qwen/Qwen2.5-VL-7B-Instruct', state: 'running' },
+];
+
+export const DEMO_ENDPOINTS = [
+  {
+    name: 'qwen2-5-vl-7b-instruct-1a2',
+    model: { repository: 'Qwen/Qwen2.5-VL-7B-Instruct' },
+    compute: { instanceType: 'nvidia-l4', instanceSize: 'x1', accelerator: 'gpu' },
+    status: { state: 'running', url: 'https://example.endpoints.huggingface.cloud' },
+  },
+];

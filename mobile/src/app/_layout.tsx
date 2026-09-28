@@ -50,6 +50,7 @@ export default function RootLayout() {
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="scan" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
               <Stack.Screen name="capture/[id]" />
+              <Stack.Screen name="bridge" />
             </Stack>
           </SessionProvider>
         </SettingsProvider>

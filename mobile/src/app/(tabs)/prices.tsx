@@ -159,7 +159,7 @@ function ProductCard({ p, open, onToggle }: { p: Product; open: boolean; onToggl
       <Card style={{ gap: space(3) }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space(3) }}>
           <View style={{ flex: 1 }}>
-            <Txt variant="heading">{p.name}</Txt>
+            <Txt variant="heading" style={{ textAlign: 'left' }}>{p.name}</Txt>
             <Txt variant="caption">
               {p.history.length} price{p.history.length === 1 ? '' : 's'} · {p.stores} store{p.stores === 1 ? '' : 's'} · {timeAgo(p.latest.observed_at)}
             </Txt>

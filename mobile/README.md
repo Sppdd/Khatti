@@ -13,6 +13,7 @@ into an AI tool.
 | **Library** | A mymind-style masonry library of everything captured. Search it in Arabic or English, filter by kind, mark favourites. |
 | **Prices** | Every price from receipts and tags, grouped by product: latest, low/high, change, cheapest store. |
 | **API Lab** | Set the API URL and key, check `/health`, run a KYC case against `/v1/kyc/cases`, and see the request log. |
+| **Model bridge** (from API Lab) | Browse every model on Nebius Token Factory, Hugging Face and your own servers; pick the one that reads your photos; try chat and image models in a playground; host any Hugging Face model on a dedicated endpoint and pause, resume or delete it. |
 
 Modes (`auto`, `prices`, `mind`, `prompt`, `text`) steer what the model focuses on.
 Every capture has **Copy for AI** (compact JSON context). Prompt captures open a

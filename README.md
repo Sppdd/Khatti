@@ -50,6 +50,42 @@ curl -F file=@receipt.jpg -F mode=prices http://localhost:8000/v1/extract
 record: `kind`, `title`, `summary`, `text`, `tags`, `fields`, `items` (name, price,
 currency, quantity, unit), `store`, and `prompt` (a ready-to-paste generative-media prompt).
 
+## Model bridge
+
+One gateway to **Nebius Token Factory**, **Hugging Face** and **any self-hosted model**.
+Address a model as `<provider>/<model id>`; an id without a known provider prefix goes
+to the default provider (`KHATTI_BRIDGE_DEFAULT`, else the first configured).
+
+| Provider | Model ids | Enabled by |
+|---|---|---|
+| `nebius` | `nebius/meta-llama/Llama-3.3-70B-Instruct` | `KHATTI_TOKEN_FACTORY_KEY` |
+| `hf` | `hf/Qwen/Qwen2.5-VL-7B-Instruct` (Inference Providers router) | `HF_TOKEN` |
+| `hfe` | `hfe/<endpoint name>` (your dedicated Inference Endpoint) | `HF_TOKEN` |
+| custom | `<name>/<model>`, e.g. vLLM serving a Hub model on a Nebius GPU | `KHATTI_PROVIDERS` |
+
+```bash
+# OpenAI-compatible: point any OpenAI SDK at <khatti>/v1/bridge/openai
+curl -H "Authorization: Bearer $KHATTI_API_KEY" -H 'Content-Type: application/json' \
+     localhost:8000/v1/bridge/openai/chat/completions \
+     -d '{"model":"nebius/meta-llama/Llama-3.3-70B-Instruct","messages":[{"role":"user","content":"مرحبا"}],"stream":true}'
+```
+
+| Route | What it does |
+|---|---|
+| `GET /v1/bridge/providers` | Configured providers and their features |
+| `GET /v1/bridge/models` | Every provider's models in one list (per-provider errors reported, not fatal) |
+| `POST /v1/bridge/openai/{chat/completions, completions, embeddings, images/generations}` | Routed by `model`, streaming relayed |
+| `GET/POST/DELETE /v1/bridge/{provider}/{path}` | Provider-native features with the provider's own model ids: `files`, `batches`, `fine_tuning/jobs`, `models`... |
+| `GET/POST /v1/bridge/hosting/endpoints`, `…/{name}/{pause,resume,scale-to-zero}`, `DELETE …/{name}` | Host any Hugging Face model on a dedicated Inference Endpoint and manage it |
+| `GET /v1/bridge/hosting/catalog`, `POST …/catalog/deploy`, `GET …/hardware` | HF one-click catalog and available hardware |
+| `GET /v1/bridge/hosting/recipe?repo=<hub id>` | vLLM command plus `KHATTI_PROVIDERS` entry for serving a Hub model on your own GPU |
+
+Only the listed OpenAI paths are forwarded, so the bridge is never an open proxy. Creating
+or resuming endpoints bills your Hugging Face account, so it needs `KHATTI_ALLOW_HOSTING=1`;
+pausing and scaling to zero are always allowed. New endpoints scale to zero after 15 idle
+minutes by default. `/v1/extract` accepts an optional `model` to read photos with any
+bridged vision model.
+
 ## Configuration
 
 | Variable | Purpose |
@@ -61,6 +97,13 @@ currency, quantity, unit), `store`, and `prompt` (a ready-to-paste generative-me
 | `KHATTI_MIN_CONFIDENCE` | Below this case confidence → human review (default 0.85) |
 | `KHATTI_EXTRACTOR` | JSON `{name, base_url, model, api_key?}` vision model for `/v1/extract`; defaults to the first reader |
 | `KHATTI_API_KEY` | If set, `/v1/*` requires `Authorization: Bearer <key>` |
+| `HF_TOKEN` | Enables the `hf` (Inference Providers) and `hfe` (Inference Endpoints) bridge providers |
+| `KHATTI_HF_ROUTER_URL` | HF router base URL (default `https://router.huggingface.co/v1`) |
+| `KHATTI_HF_NAMESPACE` | HF user or org that owns endpoints (default: the token's user) |
+| `KHATTI_PROVIDERS` | JSON list of extra OpenAI-compatible providers: `name`, `base_url`, optional `api_key`, `label`, `features` |
+| `KHATTI_BRIDGE_DEFAULT` | Provider for model ids without a prefix |
+| `KHATTI_ALLOW_HOSTING` | `1` to allow creating and resuming paid HF endpoints |
+| `KHATTI_CORS_ORIGINS` | Comma-separated origins for browser clients (Expo web) |
 
 ## Test
 

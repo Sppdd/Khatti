@@ -42,7 +42,11 @@ async function call<T>(endpoint: string, init: RequestInit, meta: Record<string,
     const res = await fetch(`${apiUrl.replace(/\/+$/, '')}${endpoint}`, {
       ...init,
       signal: controller.signal,
-      headers: { Accept: 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
+      headers: {
+        Accept: 'application/json',
+        ...(init.headers as Record<string, string> | undefined),
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      },
     });
     status = res.status;
     const body = await res.json().catch(() => null);
@@ -79,10 +83,16 @@ export async function extractPhoto(image: PreparedImage, mode: ExtractMode): Pro
     logApi({ endpoint: '/v1/extract (demo)', status: 200, ok: true, latency_ms: latencyMs, error: null, meta: { mode } });
     return { data: demoExtract(mode), latencyMs };
   }
+  const { extractModel } = getSettings();
   const form = new FormData();
   form.append('file', await filePart(image, 'photo.jpg'));
   form.append('mode', mode);
-  return call<ExtractResult>('/v1/extract', { method: 'POST', body: form }, { mode, width: image.width, height: image.height });
+  if (extractModel) form.append('model', extractModel);
+  return call<ExtractResult>(
+    '/v1/extract',
+    { method: 'POST', body: form },
+    { mode, model: extractModel || null, width: image.width, height: image.height },
+  );
 }
 
 export interface Health {
@@ -105,3 +115,71 @@ export async function createKycCase(docs: { image: PreparedImage; docType: DocTy
   }
   return call<KycCaseResult>('/v1/kyc/cases', { method: 'POST', body: form }, { docs: docs.map((d) => d.docType) });
 }
+
+// ---------- Model bridge (khatti/bridge.py) ----------
+
+export interface BridgeProvider {
+  name: string;
+  label: string;
+  kind: 'openai' | 'hf-endpoints';
+  features: string[];
+  default: boolean;
+}
+
+export interface BridgeModel {
+  id: string; // "<provider>/<model id>"
+  provider: string;
+  owned_by?: string | null;
+  state?: string | null; // HF endpoints only
+}
+
+export interface HfEndpoint {
+  name: string;
+  model?: { repository?: string };
+  compute?: { instanceType?: string; instanceSize?: string; accelerator?: string };
+  status?: { state?: string; url?: string; message?: string };
+}
+
+const json = (body: unknown): RequestInit => ({
+  method: 'POST',
+  body: JSON.stringify(body),
+  headers: { 'Content-Type': 'application/json' },
+});
+
+export const getProviders = () =>
+  call<{ providers: BridgeProvider[]; default: string | null; hosting: boolean }>('/v1/bridge/providers', { method: 'GET' });
+
+export const getModels = () =>
+  call<{ data: BridgeModel[]; errors: Record<string, string> }>('/v1/bridge/models', { method: 'GET' });
+
+export async function chatOnce(model: string, prompt: string): Promise<Timed<string>> {
+  const { data, latencyMs } = await call<{ choices: { message: { content: string | null } }[] }>(
+    '/v1/bridge/openai/chat/completions',
+    json({ model, messages: [{ role: 'user', content: prompt }], max_tokens: 600 }),
+    { model },
+  );
+  return { data: data.choices?.[0]?.message?.content ?? '', latencyMs };
+}
+
+// Returns an image URI (remote URL or data: URI) from any bridged image model.
+export async function generateImage(model: string, prompt: string): Promise<Timed<string>> {
+  const { data, latencyMs } = await call<{ data: { url?: string; b64_json?: string }[] }>(
+    '/v1/bridge/openai/images/generations',
+    json({ model, prompt, response_format: 'b64_json' }),
+    { model },
+  );
+  const first = data.data?.[0];
+  const uri = first?.b64_json ? `data:image/png;base64,${first.b64_json}` : first?.url;
+  if (!uri) throw new ApiError('The model returned no image', 200);
+  return { data: uri, latencyMs };
+}
+
+export const listEndpoints = () => call<{ items: HfEndpoint[] }>('/v1/bridge/hosting/endpoints', { method: 'GET' });
+
+export const hostModel = (repository: string, instanceType: string) =>
+  call<HfEndpoint>('/v1/bridge/hosting/endpoints', json({ repository, instance_type: instanceType }), { repository });
+
+export const endpointAction = (name: string, action: 'pause' | 'resume' | 'scale-to-zero' | 'delete') =>
+  action === 'delete'
+    ? call<unknown>(`/v1/bridge/hosting/endpoints/${encodeURIComponent(name)}`, { method: 'DELETE' }, { name, action })
+    : call<unknown>(`/v1/bridge/hosting/endpoints/${encodeURIComponent(name)}/${action}`, { method: 'POST' }, { name, action });

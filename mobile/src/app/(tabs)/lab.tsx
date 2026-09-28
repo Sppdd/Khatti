@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState, type ReactNode } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Switch, TextInput, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
@@ -43,12 +43,35 @@ export default function LabScreen() {
             <Txt variant="label">Point Khatti at your API, test every endpoint, watch the logs.</Txt>
           </View>
           <ConnectionCard onCall={refreshLogs} />
+          <BridgeLink />
           <KycCard onCall={refreshLogs} />
           <AccountCard />
           <LogCard logs={logs} onRefresh={refreshLogs} />
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>
+  );
+}
+
+function BridgeLink() {
+  const { settings } = useSettings();
+  return (
+    <PressableScale onPress={() => router.push('/bridge')} scaleTo={0.98}>
+      <Card style={{ flexDirection: 'row', alignItems: 'center', gap: space(3), borderColor: colors.violet + '66' }}>
+        <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.violet + '33', alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="git-network" size={20} color={colors.violetSoft} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Txt variant="heading" style={{ fontSize: 15 }}>
+            Model bridge
+          </Txt>
+          <Txt variant="caption" numberOfLines={1}>
+            Capture model: {settings.extractModel || 'server default'}
+          </Txt>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+      </Card>
+    </PressableScale>
   );
 }
 

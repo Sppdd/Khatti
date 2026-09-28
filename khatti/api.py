@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 
+from .bridge import Bridge, BridgeCompleter, BridgeError, bridge_from_env
+from .bridge_api import router as bridge_router
 from .config import load_settings
 from .extract import ExtractMode, ExtractResult, PhotoExtractor
 from .llm import ChatClient
@@ -42,10 +46,17 @@ async def _read_image(f: UploadFile) -> bytes:
     return data
 
 
+def require_key(request: Request) -> None:
+    key = request.app.state.api_key
+    if key and request.headers.get("authorization") != f"Bearer {key}":
+        raise HTTPException(401, "Missing or wrong API key")
+
+
 def create_app(
     pipeline: KycPipeline | None = None,
     extractor: PhotoExtractor | None = None,
     api_key: str | None = None,
+    bridge: Bridge | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -55,17 +66,26 @@ def create_app(
             app.state.extractor = extractor_from_env()
         if app.state.api_key is None:
             app.state.api_key = load_settings().api_key
+        if app.state.bridge is None:
+            app.state.bridge = bridge_from_env(load_settings().timeout_s)
         yield
+        if app.state.bridge is not None:
+            await app.state.bridge.http.aclose()
 
     app = FastAPI(title="Khatti API", version="0.2.0", lifespan=lifespan)
     app.state.pipeline = pipeline
     app.state.extractor = extractor
     app.state.api_key = api_key
-
-    def require_key(request: Request) -> None:
-        key = request.app.state.api_key
-        if key and request.headers.get("authorization") != f"Bearer {key}":
-            raise HTTPException(401, "Missing or wrong API key")
+    app.state.bridge = bridge
+    app.include_router(bridge_router, dependencies=[Depends(require_key)])
+    # Browsers only (Expo web, dashboards); native apps do not need CORS.
+    if origins := os.getenv("KHATTI_CORS_ORIGINS"):
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[o.strip() for o in origins.split(",")],
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     @app.get("/health")
     async def health(request: Request) -> dict:
@@ -76,6 +96,7 @@ def create_app(
             "router": p.router.name if p and p.router else None,
             "extractor": request.app.state.extractor.model if request.app.state.extractor else None,
             "auth": bool(request.app.state.api_key),
+            "providers": [p["name"] for p in request.app.state.bridge.describe()] if request.app.state.bridge else [],
         }
 
     @app.post("/v1/extract", response_model=ExtractResult, dependencies=[Depends(require_key)])
@@ -83,13 +104,20 @@ def create_app(
         request: Request,
         file: UploadFile = File(..., description="Any photo"),
         mode: ExtractMode = Form(ExtractMode.AUTO),
+        model: str | None = Form(None, description="Any bridged vision model, e.g. 'nebius/<model id>'"),
     ) -> ExtractResult:
         x: PhotoExtractor | None = request.app.state.extractor
+        if model:
+            if request.app.state.bridge is None:
+                raise HTTPException(503, "Bridge not configured")
+            x = PhotoExtractor(BridgeCompleter(request.app.state.bridge, model), model)
         if x is None:
-            raise HTTPException(503, "No extractor configured; set KHATTI_EXTRACTOR or KHATTI_READERS")
+            raise HTTPException(503, "No extractor configured; set KHATTI_EXTRACTOR or KHATTI_READERS, or pass a model")
         data = await _read_image(file)
         try:
             return await x.extract(data, file.content_type or "image/jpeg", mode)
+        except BridgeError as exc:
+            raise HTTPException(exc.status if exc.status < 500 else 502, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(502, f"Model reply was not usable JSON: {exc}") from exc
         except Exception as exc:  # upstream HTTP/network failure
