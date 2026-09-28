@@ -1,0 +1,53 @@
+{
+  "variants": [
+    "clean"
+  ],
+  "as_of": "2026-09-28",
+  "documents": {
+    "national_id_front": {
+      "fields": {
+        "full_name_ar": "بتول سجاد نبيل ماجد",
+        "surname_ar": "اللامي",
+        "mother_name_ar": "حوراء عباس",
+        "sex": "أنثى",
+        "blood_type": "A+",
+        "id_number": "453432235563"
+      },
+      "glare_over": null
+    },
+    "national_id_back": {
+      "fields": {
+        "date_of_birth": "1961/04/18",
+        "place_of_birth_ar": "القادسية",
+        "issue_date": "2017/12/07",
+        "expiry_date": "2027/12/07",
+        "issuing_authority_ar": "دائرة الأحوال المدنية النموذجية - القادسية",
+        "family_number": "SWHRA7B0S9ACA1FVR8"
+      },
+      "glare_over": null
+    },
+    "commercial_registration": {
+      "fields": {
+        "owner_name_ar": "بتول سجاد نبيل ماجد",
+        "business_name_ar": "صيدلية الأمل",
+        "registration_number": "18/193984",
+        "activity_ar": "بيع الأدوية",
+        "governorate_ar": "القادسية",
+        "address_ar": "القادسية - شارع السوق",
+        "issue_date": "2025/05/20",
+        "expiry_date": "2028/05/19"
+      },
+      "glare_over": null
+    },
+    "tax_card": {
+      "fields": {
+        "holder_name_ar": "بتول سجاد نبيل ماجد",
+        "business_name_ar": "صيدلية الأمل",
+        "tax_number": "685857601",
+        "issue_date": "2026/04/17",
+        "expiry_date": "2028/04/16"
+      },
+      "glare_over": null
+    }
+  }
+}

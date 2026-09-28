@@ -1,0 +1,53 @@
+{
+  "variants": [
+    "license_missing_grandfather"
+  ],
+  "as_of": "2026-09-28",
+  "documents": {
+    "national_id_front": {
+      "fields": {
+        "full_name_ar": "مرتضى ضياء رضا رعد",
+        "surname_ar": "الطائي",
+        "mother_name_ar": "هدى هاشم",
+        "sex": "ذكر",
+        "blood_type": "AB+",
+        "id_number": "243217853753"
+      },
+      "glare_over": null
+    },
+    "national_id_back": {
+      "fields": {
+        "date_of_birth": "2003/10/30",
+        "place_of_birth_ar": "الأنبار",
+        "issue_date": "2018/06/06",
+        "expiry_date": "2028/06/06",
+        "issuing_authority_ar": "دائرة الأحوال المدنية النموذجية - الأنبار",
+        "family_number": "SUD4UWKD7MHSREU4ST"
+      },
+      "glare_over": null
+    },
+    "commercial_registration": {
+      "fields": {
+        "owner_name_ar": "مرتضى ضياء رعد",
+        "business_name_ar": "محلات الوفاء",
+        "registration_number": "01/838150",
+        "activity_ar": "بيع الملابس",
+        "governorate_ar": "الأنبار",
+        "address_ar": "الأنبار - حي المنصور",
+        "issue_date": "2026/01/24",
+        "expiry_date": "2029/01/23"
+      },
+      "glare_over": null
+    },
+    "tax_card": {
+      "fields": {
+        "holder_name_ar": "مرتضى ضياء رضا رعد",
+        "business_name_ar": "محلات الوفاء",
+        "tax_number": "604920624",
+        "issue_date": "2026/03/14",
+        "expiry_date": "2028/03/13"
+      },
+      "glare_over": null
+    }
+  }
+}

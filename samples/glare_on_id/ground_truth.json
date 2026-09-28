@@ -1,0 +1,53 @@
+{
+  "variants": [
+    "clean"
+  ],
+  "as_of": "2026-09-28",
+  "documents": {
+    "national_id_front": {
+      "fields": {
+        "full_name_ar": "ليلى رضا حيدر أيمن",
+        "surname_ar": "الموصلي",
+        "mother_name_ar": "رقية سلام",
+        "sex": "أنثى",
+        "blood_type": "O-",
+        "id_number": "998267382102"
+      },
+      "glare_over": "id_number"
+    },
+    "national_id_back": {
+      "fields": {
+        "date_of_birth": "1961/11/10",
+        "place_of_birth_ar": "صلاح الدين",
+        "issue_date": "2019/09/04",
+        "expiry_date": "2029/09/04",
+        "issuing_authority_ar": "دائرة الأحوال المدنية النموذجية - صلاح الدين",
+        "family_number": "VZE9YTX4F5MRCZUUS8"
+      },
+      "glare_over": null
+    },
+    "commercial_registration": {
+      "fields": {
+        "owner_name_ar": "ليلى رضا حيدر أيمن",
+        "business_name_ar": "مطعم الربيع",
+        "registration_number": "06/631934",
+        "activity_ar": "تقديم الوجبات",
+        "governorate_ar": "صلاح الدين",
+        "address_ar": "صلاح الدين - شارع الكورنيش",
+        "issue_date": "2026/07/16",
+        "expiry_date": "2029/07/15"
+      },
+      "glare_over": null
+    },
+    "tax_card": {
+      "fields": {
+        "holder_name_ar": "ليلى رضا حيدر أيمن",
+        "business_name_ar": "مطعم الربيع",
+        "tax_number": "389745787",
+        "issue_date": "2025/08/24",
+        "expiry_date": "2027/08/24"
+      },
+      "glare_over": null
+    }
+  }
+}

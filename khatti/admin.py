@@ -5,6 +5,7 @@
     python -m khatti.admin gen-data-key                       # value for KHATTI_DATA_KEY
     python -m khatti.admin verify-audit <tenant_id>
     python -m khatti.admin export-openapi [path]
+    python -m khatti.admin seed-demo                          # demo tenant + judge credentials
 """
 
 from __future__ import annotations
@@ -44,6 +45,22 @@ async def main(argv: list[str]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.safe_dump(spec, allow_unicode=True, sort_keys=False), encoding="utf-8")
         print(f"wrote {path}")
+    elif cmd == "seed-demo":
+        store = await _store()
+        try:
+            tid = await store.create_tenant("Khatti Demo Bank (fictional)")
+            server = await store.create_api_key(tid, "demo-server")
+            judge = await store.create_api_key(tid, "judges")
+        finally:
+            await store.close()
+        base = os.getenv("KHATTI_PUBLIC_BASE_URL", "http://localhost:8000")
+        print(f"""Demo tenant {tid}
+  server API key : {server}
+  judges API key : {judge}   (mint reviewer tokens with POST /v1/auth/token)
+
+Try it:
+  python -m khatti.demo samples/glare_on_id --base-url {base} --api-key {judge}
+Samples are fictional (SPECIMEN-watermarked); see samples/README.md.""")
     elif cmd in ("create-tenant", "create-key", "verify-audit"):
         store = await _store()
         try:

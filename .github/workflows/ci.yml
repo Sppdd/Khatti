@@ -1,0 +1,46 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: khatti_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # Superuser URL: the tests create a non-superuser app role so Row-Level Security is enforced.
+      KHATTI_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/khatti_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install
+        run: |
+          pip install -e '.[dev,deploy]' "playwright==1.56.0"
+          python -m playwright install --with-deps chromium
+      - name: Tests
+        run: python -m pytest -q
+      - name: OpenAPI spec is up to date
+        run: |
+          python -m khatti.admin export-openapi
+          git diff --exit-code openapi/khatti.v1.yaml
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive infra

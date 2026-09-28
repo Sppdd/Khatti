@@ -92,6 +92,17 @@ Terraform for Nebius (Object Storage, Managed PostgreSQL, Container Registry, Ma
 the vLLM image for the NVIDIA reader (`services/reader-omni`), a CLI deploy script for Serverless
 Endpoints/Jobs, and a GCP portability module.
 
+## Demo
+
+Three fictional sample sessions live in [`samples/`](samples/README.md): a clean one, a license
+missing the grandfather name (routes with `NAME_PARTIAL_MATCH`), and glare over the ID number
+(blank and flagged, with a specific retake request).
+
+```bash
+docker compose exec api python -m khatti.admin seed-demo           # demo tenant + judge API key
+python -m khatti.demo samples/glare_on_id --api-key <judge key>    # create -> upload -> submit -> result
+```
+
 ## Run locally
 
 ```bash
