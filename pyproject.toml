@@ -26,6 +26,11 @@ dev = ["pytest>=8"]
 jobs = ["playwright==1.56.0", "mlflow>=2.14"]
 # Nebius Serverless deploys (deploy/nebius_deploy.py)
 deploy = ["nebius==0.6.14"]
+# NVIDIA NeMo Agent Toolkit: nat eval / nat serve over the pipeline (khatti/nat_plugin.py)
+nat = ["nvidia-nat==1.9.0", "nvidia-nat-eval[full]==1.9.0", "nvidia-nat-profiler==1.9.0", "langchain-core>=0.3"]
+
+[project.entry-points."nat.components"]
+khatti = "khatti.nat_plugin"
 
 [build-system]
 requires = ["setuptools>=68"]

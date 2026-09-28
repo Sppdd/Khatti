@@ -1,0 +1,26 @@
+# NeMo Agent Toolkit: evaluate and profile the Khatti pipeline.
+#   python -m jobs.nat_dataset --data data/synth --split test --out eval/nat/test.jsonl
+#   nat eval --config_file nat/khatti_eval.yml
+# Set workflow.readers to "simulated" to exercise the harness without model endpoints.
+workflow:
+  _type: khatti_kyc_session
+  data_dir: data/synth
+  readers: env
+  structurer: env
+
+eval:
+  general:
+    output_dir: eval/nat/output
+    max_concurrency: 4
+    dataset:
+      _type: jsonl
+      file_path: eval/nat/test.jsonl
+    profiler:
+      base_metrics: true
+  evaluators:
+    fields:
+      _type: khatti_fields
+    routing:
+      _type: khatti_routing
+    hallucination:
+      _type: khatti_hallucination

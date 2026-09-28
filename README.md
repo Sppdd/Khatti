@@ -78,6 +78,14 @@ augmentation with quality buckets, the week-1 reader bake-off, calibration fitti
 harness (hallucination rate, calibration, routing, selective risk). Each runs as a Nebius Serverless
 Job from one container and logs to Managed MLflow.
 
+## NVIDIA NeMo Agent Toolkit
+
+`khatti/nat_plugin.py` registers the pipeline as a NAT workflow (`khatti_kyc_session`) and three
+evaluators (`khatti_fields`, `khatti_routing`, `khatti_hallucination`). `nat eval --config_file
+nat/khatti_eval.yml` runs evaluation plus NAT's profiler (runtime percentiles, traces); `nat serve`
+exposes the pipeline through NAT's FastAPI front end. The core does not depend on NAT
+(`pip install -e '.[nat]'`).
+
 ## Infrastructure — [`infra/`](infra/README.md)
 
 Terraform for Nebius (Object Storage, Managed PostgreSQL, Container Registry, Managed MLflow, IAM),
